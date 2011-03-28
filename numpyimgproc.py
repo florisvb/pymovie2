@@ -79,9 +79,12 @@ def get_ellipse_cov(img, erode=False, recenter=True):
     
     if img is not None:
     
-        if erode:
+        if erode is not False:
             try:
-                img = binary_erosion(img)
+                e = 0
+                while e < erode:
+                    e += 1
+                    img = binary_erosion(img)
             except:
                 pass
                 
@@ -91,21 +94,31 @@ def get_ellipse_cov(img, erode=False, recenter=True):
             center = np.array([0,0])
 
         if 1:
-            pts = np.transpose(np.nonzero(img))
-            for pt in pts:
+            ptsT = np.transpose(np.nonzero(img))
+            for pt in ptsT:
                 pt -= center
             pts = (np.transpose(np.nonzero(img))).T
             cov = np.cov(pts)
             cov = np.nan_to_num(cov)
             e,v = np.linalg.eig(cov)
-            ratio = max(e) / min(e)
             
-            i = np.argmax(e)
-            long_axis = v[:,i]
+            longaxis = v[:,np.argmax(e)]
+            shortaxis = v[:,np.argmin(e)]
+            
+            if len(ptsT) > 2:
+                dl = [np.dot(longaxis, ptsT[i]) for i in range(len(ptsT))]
+                longaxis_radius = np.max( np.abs(dl) )
+                
+                ds = [np.dot(shortaxis, ptsT[i]) for i in range(len(ptsT))]
+                shortaxis_radius = np.min( np.abs(ds) )
+            else:
+                longaxis_radius = None
+                shortaxis_radius = None
+                
         if recenter is False:
-            return long_axis, ratio
+            return longaxis, [longaxis_radius, shortaxis_radius]
         else:
-            return center, long_axis, ratio
+            return center, longaxis, [longaxis_radius, shortaxis_radius]
             
     else:
         return [0,0],0
@@ -253,12 +266,12 @@ def get_uimg( img_roi, relative_center, uimg_roi_radius ):
     col_lo = np.max( [int(round(relative_center[1]))-uimg_roi_radius, 0] )
     col_hi = np.min( [int(round(relative_center[1]))+uimg_roi_radius, img_roi.shape[1]] )
     
-    uimg = img_roi[row_lo:row_hi, col_lo:col_hi]
+    uimg = copy.copy(img_roi[row_lo:row_hi, col_lo:col_hi])
     relative_zero = np.array([row_lo, col_lo])
     
     return uimg, relative_zero
 
-def find_object_with_background_subtraction(img, background, mask=None, guess=None, guess_radius=None, sizerange=[0,inf], thresh=10, uimg_roi_radius=30, return_uimg=True):
+def find_object_with_background_subtraction(img, background, mask=None, guess=None, guess_radius=None, sizerange=[0,inf], thresh=10, uimg_roi_radius=30, return_uimg=True, return_mimg=False):
 
     if guess is not None:
         if True in np.isnan(np.array(guess)):
@@ -267,6 +280,9 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
         else:
             guess = np.array(np.round(guess), dtype=int)
             original_guess = copy.copy(guess)
+    else:
+        guess_radius = None
+        
     if guess_radius is not None:
         guess_radius = int(guess_radius)
         
@@ -314,8 +330,15 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
             if return_uimg:
                 uimg, relative_zero = get_uimg( img_roi, center-zero, uimg_roi_radius )
                 zero += relative_zero
-                return center, uimg, zero
+                center = copy.copy(center)
+                zero = copy.copy(zero)
+                if return_mimg is False:
+                    return center, uimg, zero
+                else:
+                    mimg = copy.copy(img_roi)
+                    return center, uimg, zero, mimg
             else:
+                center = copy.copy(center)
                 return center    
     
     
@@ -326,8 +349,15 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
     if return_uimg:
         uimg, relative_zero = get_uimg( img_roi, relative_center, uimg_roi_radius )
         zero += relative_zero
-        return center, uimg, zero
+        center = copy.copy(center)
+        zero = copy.copy(zero)
+        if return_mimg is False:
+            return center, uimg, zero
+        else:
+            mimg = copy.copy(img_roi)
+            return center, uimg, zero, mimg
     else:
+        center = copy.copy(center)
         return center
         
         
@@ -374,8 +404,12 @@ def find_object(img, background=None, threshrange=[1,254], sizerange=[10,400], d
 def find_ellipse(img, background=None, threshrange=[1,254], sizerange=[10,400], dist_thresh=10, erode=False, check_centers=False):
     
     body = find_object(img, background=background, threshrange=threshrange, sizerange=sizerange, dist_thresh=dist_thresh, erode=erode, check_centers=check_centers)
+
+    if body.sum() < 1 and check_centers==True:
+        body = find_object(img, background=background, threshrange=threshrange, sizerange=sizerange, dist_thresh=dist_thresh, erode=erode, check_centers=False)
+
     center, long_axis, ratio = get_ellipse_cov(body, erode=False, recenter=True)
     
-    return center, long_axis, body
+    return center, long_axis, body, ratio
     
     

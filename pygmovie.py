@@ -3,11 +3,26 @@ import numpy as np
 from pyglet import media
 import numpyimgproc as nim
 import copy
+import pickle
 
 import load_movie_info
 
+###
+def save(data, filename):
+    fd = open( filename, mode='w' )
+    pickle.dump(data, fd)
+    fd.close()
+    return 1
+def load(filename):
+    fd = open( filename, mode='r')
+    print 'loading data... from file'
+    data = pickle.load(fd)
+    return data
+
+###
 class Frame:
-    pass
+    def __init__(self):
+        self.tmp = 0
 
 ###
 class Movie:
@@ -95,7 +110,7 @@ def process_movie(movieinfo, framerange=None, nframes=None):
     first_frame = (movie.get_frame_at_timestamp(0)[::-1, :])
     last_frame = (movie.get_frame_at_timestamp(movie.duration-1)[::-1, :])
     background = nim.lighten(first_frame, last_frame)
-    movieinfo.background = background
+    movieinfo.background = copy.copy(background)
     
     if framerange is None:
         framerange = movieinfo.framenumbers
@@ -107,6 +122,7 @@ def process_movie(movieinfo, framerange=None, nframes=None):
     
     movieinfo.obj_centers = np.zeros([nframes, 2])
     movieinfo.obj_longaxis = np.zeros([nframes, 2])
+    movieinfo.obj_ratio = np.zeros([nframes, 2])
     movieinfo.frames = [Frame() for frame in framerange]
     
     print 'framerange = ', framerange[0]
@@ -123,27 +139,29 @@ def process_movie(movieinfo, framerange=None, nframes=None):
             try:
                 vel_est = movieinfo.obj_centers[f-1,:] - movieinfo.obj_centers[f-2,:]
                 guess = movieinfo.obj_centers[f-1,:] + vel_est
-                guess_radius = 50
+                guess_radius = 35
             except:
                 guess = None
                 guess_radius = None
                 
         
-        center, uimg, zero = nim.find_object_with_background_subtraction(raw, background, mask=tracking_mask, guess=guess, guess_radius=guess_radius, sizerange=[10,600], thresh=10, uimg_roi_radius=30, return_uimg=True)
+        center, uimg, zero, mimg = nim.find_object_with_background_subtraction(raw, background, mask=tracking_mask, guess=guess, guess_radius=guess_radius, sizerange=[10,600], thresh=10, uimg_roi_radius=30, return_uimg=True, return_mimg=True)
         
         ubackground = nim.extract_uimg(background, uimg.shape, zero)
         
-        relative_center_of_body, long_axis, body = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
+        relative_center_of_body, long_axis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
         
         center_of_body = relative_center_of_body + zero
         #center_of_body = center
         
         frame.uimg = copy.copy(uimg)
+        frame.mimg = mimg
         frame.zero = zero
         frame.framenumber = framenumber
         
         movieinfo.obj_centers[f,:] = copy.copy(center_of_body)
         movieinfo.obj_longaxis[f,:] = copy.copy(long_axis)
+        movieinfo.obj_ratio[f,:] = copy.copy(ratio)
         
         del(raw)
     del(movie)
@@ -151,24 +169,59 @@ def process_movie(movieinfo, framerange=None, nframes=None):
     return    
     #return movieinfo        
     
-
+###
+def reprocess_uframes(movieinfo):
+    
+    framerange = movieinfo.framenumbers
+    nframes = len(framerange)
+    
+    movieinfo.obj_centers = np.zeros([nframes, 2])
+    movieinfo.obj_longaxis = np.zeros([nframes, 2])
+    movieinfo.obj_ratio = np.zeros([nframes, 2])
+    
+    for f, framenumber in enumerate(framerange):
+        frame = movieinfo.frames[f] 
+        uimg = frame.uimg
+        zero = frame.zero
+        
+        ubackground = nim.extract_uimg(movieinfo.background, uimg.shape, zero)
+            
+        relative_center_of_body, long_axis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
+        
+        center_of_body = relative_center_of_body + zero
+        #center_of_body = center
+        
+        movieinfo.obj_centers[f,:] = center_of_body
+        movieinfo.obj_longaxis[f,:] = long_axis
+        movieinfo.obj_ratio[f,:] = ratio
+        
+###
+def reprocess_movie_dataset(movie_dataset):
+    keys = movie_dataset.get_movie_keys(processed=True)
+    for key in keys:
+        movieinfo = movie_dataset.movies[key]
+        reprocess_uframes(movieinfo) 
 ###
 def batch_process_movies(saveas='movie_dataset_test'):
     movie_dataset = load_movie_info.load()
+    movie_dataset_empty = copy.copy(movie_dataset)
     
-    for k, movie in movie_dataset.movies.items():  
+    save(movie_dataset, saveas)
+    del(movie_dataset)
+    
+    
+    
+    for k, movie in movie_dataset_empty.movies.items():  
         if movie.infocus == 1:
-            process_movie(movie)
-            fd = open( saveas, mode='w' )
-            pickle.dump(movie_dataset, fd)
-            fd.close()
+            movieinfo = copy.copy(movie)
+            process_movie(movieinfo)
+            
+            movie_dataset = load(saveas)
+            movie_dataset.movies[k] = movieinfo 
+            save(movie_dataset, saveas)
+            del(movie_dataset)
     
 
-if __name__ == '__main__':
-
-    batch_process_movies()
-    
-    
     
     
     

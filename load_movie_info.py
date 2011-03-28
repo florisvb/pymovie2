@@ -12,7 +12,7 @@ class MovieDataset:
         def __init__(self):
             self.movies = {}
             
-        def get_movie_keys(self, behavior=None, posttype=None):
+        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True):
             if behavior is None:
                 behavior = ['landing', 'flyby']
             else:
@@ -24,10 +24,17 @@ class MovieDataset:
             else:
                 if posttype is not list:
                     posttype = [posttype]
-                
+                    
             movie_keys = []
             for key, movieinfo in self.movies.items():
-                if movieinfo.behavior in behavior and movieinfo.posttype in posttype and movieinfo.infocus == 1:
+                try:
+                    tmp = movieinfo.obj_centers
+                    del(tmp)
+                    isprocessed = True
+                except:
+                    isprocessed = False
+                    
+                if movieinfo.behavior in behavior and movieinfo.posttype in posttype and movieinfo.infocus == infocus and isprocessed == processed:
                     movie_keys.append(key)
             return movie_keys
             
@@ -58,19 +65,27 @@ def load_movie_info_from_movie_list(movie_list, movie_dataset=None):
                 pass
             entry[i] = entry[i].rstrip()
             entry[i] = entry[i].lstrip()
-        
-        # save entries to movieinfo object
-        movieinfo = MovieInfo() 
+            
+        movieid = entry[1]
+        if movieid not in movie_dataset.movies.keys():
+            movieinfo = MovieInfo() 
+            movie_dataset.movies.setdefault(movieinfo.id, movieinfo)
+        else:
+            movieinfo = movie_dataset.movies[movieid]
         
         movieinfo.path = entry[0]
-        movieinfo.id = entry[1]
+        movieinfo.id = movieid
         movieinfo.posttype = entry[2]
         movieinfo.behavior = entry[3]
-        movieinfo.subbehavior = entry[4]
+        subbehavior = entry[4]
+        subbehavior_parsed = subbehavior.split('&')
+        movieinfo.subbehavior = subbehavior_parsed 
+        
         movieinfo.firstframe_ofinterest = int(entry[5])
         movieinfo.lastframe_ofinterest = int(entry[7])
         try:    
             movieinfo.landingframe = int(entry[6])
+            print movieinfo.landingframe
         except:
             movieinfo.landingframe = None
         legextensionentry = entry[8]
@@ -80,8 +95,6 @@ def load_movie_info_from_movie_list(movie_list, movie_dataset=None):
             tmp = legextensionentry.split(':')
             movieinfo.legextensionrange = [int(tmp[0]), int(tmp[1])]
         movieinfo.infocus = int(entry[9])
-        
-        movie_dataset.movies.setdefault(movieinfo.id, movieinfo)
         
     movie_list_fid.close()
     return movie_dataset
@@ -233,8 +246,10 @@ def calc_sa1_timestamps(movie_dataset):
         all_timestamps = np.arange(movie.startframe, movie.totalframes+movie.startframe+1, 1) / float(movie.framerate) + movie.triggerstamp
         movie.timestamps = all_timestamps[movie.framenumbers]
     
-    if movie.landingframe is not None:
-        movie.landingtime = movie.timestamps[movie.landingframe - movie.firstframe_ofinterest]
+        if movie.landingframe is not None:
+            movie.landingtime = movie.timestamps[movie.landingframe - movie.firstframe_ofinterest]
+        else:
+            movie.landingtime = None
         
 def calc_syncronized_timerange(movie_dataset):
     for key, movie in movie_dataset.movies.items():

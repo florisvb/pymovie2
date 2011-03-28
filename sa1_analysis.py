@@ -10,43 +10,37 @@ import matplotlib.pyplot as plt
 ###############################################################################
 
 ###
-def interpolate(Array, values):
-    # this function will run through the array, and replace any EXACT instances of the values given with linear interpolations from the array
-    array = copy.copy(Array)
-    if type(values) is not list:
-        values = [values]
-    for i in range(1,len(array)):
-        if array[i] in values:
-            future_val = values[0]
-            future_i = i
-            while future_val in values:
-                future_i += 1
-                if future_i >= len(array):
-                    future_i = i
-                    break
-                future_val = array[future_i]
-            delta_val = (array[future_i] - array[i-1]) / float(future_i- (i-1) )
-            array[i] = array[i-1] + delta_val
-    return array
-    
+def interpolate_nan(Array):
+    if True in np.isnan(Array):
+        array = copy.copy(Array)
+        for i in range(2,len(array)):
+            if np.isnan(array[i]):
+                array[i] = array[i-1]
+        return array
+    else:
+        return Array
+        
 ###
-def kalman_smoother(data, F, H, Q, R, initx, initv, interpvals=0):
+def kalman_smoother(data, F, H, Q, R, initx, initv, plot=False):
     os = H.shape[0]
     ss = F.shape[0]
     
-    data = np.nan_to_num(data)
     interpolated_data = np.zeros_like(data)
     
     for c in range(os):
-        interpolated_data[:,c] = interpolate(data[:,c], interpvals)
-    y = interpolated_data
-    
+        interpolated_data[:,c] = interpolate_nan(data[:,c])
+        y = interpolated_data
+        
     xsmooth,Vsmooth = adskalman.kalman_smoother(y,F,H,Q,R,initx,initv)
+    
+    if plot:
+        plt.plot(xsmooth[:,0])
+        plt.plot(y[:,0], '*')
 
     return xsmooth,Vsmooth
     
 ###
-def smooth_centers(data, interpvals=0):
+def smooth_centers(data, plot=False):
     ss = 4 # state size
     os = 2 # observation size
     F = np.array([[1,0,1,0], # process update
@@ -60,15 +54,17 @@ def smooth_centers(data, interpvals=0):
     Q = 0.0001*np.eye(ss) # process noise
     R = 100*np.eye(os) # observation noise
 
-    initx = np.array([data[0,0], data[0,1], data[1,0]-data[0,0], data[1,1]-data[0,1]],dtype=np.float)
+    init_vel = np.mean(np.diff(data[0:20,:], axis=0), axis=0)
+
+    initx = np.array([data[0,0], data[0,1], init_vel[0], init_vel[1]],dtype=np.float)
     initv = 0*np.eye(ss)
 
-    xsmooth,Vsmooth = kalman_smoother(data, F, H, Q, R, initx, initv, interpvals=interpvals)
+    xsmooth,Vsmooth = kalman_smoother(data, F, H, Q, R, initx, initv, plot=plot)
     
     return xsmooth
 
 ###
-def smooth_orientation_2d(ori, interpvals=0):
+def smooth_orientation_2d(ori, plot=False):
     ss = 4 # state size
     os = 2 # observation size
     F = np.array([[1,0,1,0], # process update
@@ -80,23 +76,30 @@ def smooth_orientation_2d(ori, interpvals=0):
                      [0,1,0,0]],
                     dtype=np.float)
     Q = 0.0001*np.eye(ss) # process noise
-    Q[2,2] = .000001
-    Q[3,3] = .000001
-    R = np.eye(os) # observation noise
+    Q[2,2] = .001
+    Q[3,3] = .001
+    R = 100*np.eye(os) # observation noise
 
-    initx = np.array([ori[0,0], ori[0,1], ori[1,0]-ori[0,0], ori[1,1]-ori[0,1]],dtype=np.float)
+    init_vel = np.mean(np.diff(ori[0:20,:], axis=0), axis=0)
+
+    initx = np.array([ori[0,0], ori[0,1], init_vel[0], init_vel[1]],dtype=np.float)
     initv = 0*np.eye(ss)
 
-    xsmooth,Vsmooth = kalman_smoother(ori, F, H, Q, R, initx, initv, interpvals=interpvals)
+    xsmooth,Vsmooth = kalman_smoother(ori, F, H, Q, R, initx, initv, plot=plot)
     
     return xsmooth
 
 ###
-def fix_orientation_2d(ori, vel, switching_threshold = 0.2, interpvals=0):
-
+def fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=2.5, pixelspeed_threshold=100):
+    ori = movieinfo.obj_longaxis
+    Vel = movieinfo.smooth_vel
+    
+    vel = np.array([ Vel[i,:] / np.linalg.norm(Vel[i,:]) for i in range(len(Vel))])
+    pixelspeed = np.array([ np.linalg.norm(Vel[i,:]) for i in range(len(Vel))])
+    
     interpolated_data = np.zeros_like(ori)
     for c in range(ori.shape[1]):
-        interpolated_data[:,c] = interpolate(ori[:,c], interpvals)
+        interpolated_data[:,c] = interpolate_nan(ori[:,c])
     ori = interpolated_data
 
     # flies don't spin around immediately, so generally body angle should be rouhgly the same from frame to frame, at least within 180 deg
@@ -107,33 +110,48 @@ def fix_orientation_2d(ori, vel, switching_threshold = 0.2, interpvals=0):
     
     smooth_ori = np.zeros_like(ori)
     smooth_ori[0,:] = ori[0,:]
-    for i in range(1,len(ori)):
+    for i in range(len(ori)):
         
         if i < 1:
-            switchingthreshold = 0
+            dot_vel[i] = np.dot(vel[i], ori[i])
+            if dot_vel[i] < 0 and np.abs(dot_vel[i]) > .5:
+                direction = -1
+            else:
+                direction = 1
+            smooth_ori[i] = ori[i]*direction
+            
+            
         else:
             switchingthreshold = switching_threshold         
     
-        dot_prev_ori[i] = np.dot(smooth_ori[i-1], ori[i])
-        dot_vel[i] = np.dot(vel[i], ori[i])
-        
-        direction = 1.
+            dot_prev_ori[i] = np.dot(smooth_ori[i-1], ori[i])
+            dot_vel[i] = np.dot(vel[i], ori[i])
+            
+            direction = 1.
 
-        if dot_vel[i] < 0 and np.abs(dot_vel[i]) > switchingthreshold:
-            direction = -1
-        else:
-            if dot_prev_ori[i] < 0: # not aligned with previous frame by > 90 deg
+            if dot_vel[i] < 0 and np.abs(dot_vel[i]) > switchingthreshold:
                 direction = -1
-                
-                if dot_vel[i] < 0: # orientation not aligned with velocity
-                    if np.abs(dot_vel[i]) > switchingthreshold:
-                        direction = -1
-                if dot_vel[i] > 0: # orientation is aligned with velocity, but not with prev ori
-                    if np.abs(dot_vel[i]) > switchingthreshold:
-                        direction = 1
+            else:
+                if dot_prev_ori[i] < 0: # not aligned with previous frame by > 90 deg
+                    direction = -1
                     
-                            
-        smooth_ori[i] = ori[i]*direction
+                    if 0:
+                        if dot_vel[i] < 0: # orientation not aligned with velocity
+                            if np.abs(dot_vel[i]) > switchingthreshold:
+                                direction = -1
+                        if dot_vel[i] > 0: # orientation is aligned with velocity, but not with prev ori
+                            if np.abs(dot_vel[i]) > switchingthreshold:
+                                direction = 1
+                        
+            smooth_ori[i] = ori[i]*direction
+            
+            ratio = movieinfo.smooth_ratio[i, 0] / movieinfo.smooth_ratio[i, 1]
+            ratiop = movieinfo.smooth_ratio[i-1, 0] / movieinfo.smooth_ratio[i-1, 1]
+            if np.isnan(ratio) or ratio < ratio_threshold or pixelspeed[i]<pixelspeed_threshold or np.abs(ratio-ratiop) > 2:
+                smooth_ori[i] = smooth_ori[i-1]
+                
+            if np.linalg.norm(smooth_ori[i] - smooth_ori[i-1]) > 0.4:
+                smooth_ori[i] = smooth_ori[i-1] 
         
     return smooth_ori
     
@@ -196,7 +214,7 @@ def strobe_from_movieinfo(movieinfo, interval=200, frames=None):
     strobe_img = copy.copy(bkgrd)
     
     f = 0
-    while f <= len(movieinfo.frames):
+    while f < len(movieinfo.frames):
         frame = movieinfo.frames[f]
         uimg = frame.uimg
         zero = frame.zero
@@ -215,9 +233,26 @@ def strobe_from_movieinfo(movieinfo, interval=200, frames=None):
 ###############################################################################
 
 ###
+def process_movie_dataset(movie_dataset):   
+
+    keys = movie_dataset.get_movie_keys()
+    for key in keys:
+        print 'processing: ', key
+        movieinfo = movie_dataset.movies[key]
+        process_movieinfo(movieinfo)
+
+
+###
 def process_movieinfo(movieinfo):
-    
     smooth_movieinfo(movieinfo)
+    movieinfo.smooth_head_pos = movieinfo.smooth_centers + (movieinfo.smooth_ratio[:,0].reshape([len(movieinfo.smooth_ratio[:,0]),1]))*movieinfo.smooth_ori
+    movieinfo.smooth_head_pos = interpolate_nan(movieinfo.smooth_head_pos)
+    
+    calc_post_pos(movieinfo)
+    # post info from looking at overlays
+    #movieinfo.post_pos = np.array([509.4, 509.4])
+    #movieinfo.post_radius_in_pixels = 68.15
+    
     calc_fly_coordinates(movieinfo)
     calc_scale(movieinfo)
     calc_fly_coordinates_with_scale(movieinfo)
@@ -226,12 +261,17 @@ def process_movieinfo(movieinfo):
 ###
 def smooth_movieinfo(movieinfo):
     
-    xsmooth = smooth_centers(movieinfo.obj_centers, interpvals=0)
+    movieinfo.smooth_ratio = smooth_centers(movieinfo.obj_ratio)
+    
+    xsmooth = smooth_centers(movieinfo.obj_centers)
     movieinfo.smooth_centers = xsmooth[:,0:2]
-    movieinfo.smooth_vel = xsmooth[:,2:4]
+    movieinfo.smooth_vel = xsmooth[:,2:4] * float(movieinfo.framerate)
+    calc_fly_heading(movieinfo)
+    
+    fixed_ori = fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=2.5, pixelspeed_threshold=100)
+    #remove_orientation_errors_due_short_major_axis(movieinfo, thresh=2, pixelspeed=70, plot=False)
 
-    fixed_ori = fix_orientation_2d(movieinfo.obj_longaxis, movieinfo.smooth_vel, switching_threshold = 0.2, interpvals=0)
-    xsmooth = smooth_orientation_2d(fixed_ori, interpvals=0)
+    xsmooth = smooth_orientation_2d(fixed_ori)
     movieinfo.smooth_ori = xsmooth[:,0:2]
     for i in range(len(movieinfo.smooth_ori)):
         movieinfo.smooth_ori[i] = movieinfo.smooth_ori[i] / np.linalg.norm( movieinfo.smooth_ori[i] )
@@ -239,15 +279,57 @@ def smooth_movieinfo(movieinfo):
     movieinfo.smooth_ori_vel = xsmooth[:,2:4]
 
 ###
+def remove_orientation_errors_due_short_major_axis(movieinfo, thresh=2, pixelspeed=1, plot=False):
+    # do before smoothing / kalmanizing
+    new_ori = copy.copy(movieinfo.smooth_ori) 
+    for i in range(2,len(new_ori)):
+    
+        if np.linalg.norm(movieinfo.smooth_vel[i]) < pixelspeed:
+            new_ori[i] = new_ori[i-1]
+        
+        ratio = movieinfo.smooth_ratio[i, 0] / movieinfo.smooth_ratio[i, 1]
+        if ratio < thresh:
+            new_ori[i] = new_ori[i-1]
+    
+    if plot:
+        plt.plot(movieinfo.smooth_ori[:,0])
+        plt.plot(new_ori[:,0], '*')
+    
+    movieinfo.smooth_ori = new_ori
+    
+    return new_ori    
+    
+###
+def calc_post_pos(movieinfo):
+    threshed_img = nim.threshold(movieinfo.background, 0, 40)
+    blob = nim.find_biggest_blob(threshed_img)
+    center, longaxis, ratio = nim.get_ellipse_cov(blob, erode=1, recenter=True)
+    movieinfo.post_pos = center
+    movieinfo.post_radius_in_pixels = ratio[0]
+    
+###
+def calc_fly_heading(movieinfo, pixelspeed_threshold=100):
+    Vel = movieinfo.smooth_vel
+    vel = np.array([ Vel[i,:] / np.linalg.norm(Vel[i,:]) for i in range(len(Vel))])
+    pixelspeed = np.array([ np.linalg.norm(Vel[i,:]) for i in range(len(Vel))])
+    heading = np.zeros_like(vel)
+    for i in range(len(pixelspeed)):
+        
+        if pixelspeed[i] > pixelspeed_threshold:
+            heading[i] = vel[i]
+        else:
+            heading[i] = heading[i-1]
+    movieinfo.heading = heading
+    
+###
 def calc_fly_coordinates(movieinfo, post_pos = [512, 512]):
 
     class Flycoord:
         pass
         
     movieinfo.flycoord = Flycoord()
-    post_pos = np.array(post_pos)
+    post_pos = movieinfo.post_pos
     
-    movieinfo.flycoord.heading = np.zeros_like(movieinfo.smooth_centers)
     movieinfo.flycoord.angletopost = np.zeros([movieinfo.smooth_centers.shape[0], 1])
     movieinfo.flycoord.worldangle = np.zeros([movieinfo.smooth_centers.shape[0], 1])
     movieinfo.flycoord.slipangle = np.zeros([movieinfo.smooth_centers.shape[0], 1])
@@ -256,6 +338,14 @@ def calc_fly_coordinates(movieinfo, post_pos = [512, 512]):
     movieinfo.flycoord.dist_to_post = np.zeros([movieinfo.smooth_centers.shape[0], 1])
     movieinfo.smooth_shortaxis = np.zeros_like(movieinfo.smooth_ori)
     
+    # slipangle
+    heading3vec = np.hstack( (movieinfo.heading, np.zeros([movieinfo.heading.shape[0], 1]) ) )
+    ori3vec = np.hstack( (movieinfo.smooth_ori, np.zeros([movieinfo.smooth_ori.shape[0], 1]) ) )
+    for i in range(len(ori3vec)):
+        sinslipangle = (np.cross( heading3vec[i], ori3vec[i] ) / (np.linalg.norm(heading3vec[i])*np.linalg.norm(ori3vec[i]))).sum()
+        movieinfo.flycoord.slipangle[i] = np.arcsin(sinslipangle)
+        
+    # misc
     for i in range(len(movieinfo.smooth_centers)):
         movieinfo.smooth_shortaxis[i,0] = movieinfo.smooth_ori[i,1]
         movieinfo.smooth_shortaxis[i,1] = movieinfo.smooth_ori[i,0]*-1
@@ -264,14 +354,6 @@ def calc_fly_coordinates(movieinfo, post_pos = [512, 512]):
         if movieinfo.flycoord.worldangle[i] < 0:
             movieinfo.flycoord.worldangle[i] = np.pi*2+movieinfo.flycoord.worldangle[i]
         movieinfo.flycoord.worldangle[i] = remove_angular_rollover( [movieinfo.flycoord.worldangle[i-1], movieinfo.flycoord.worldangle[i]], .5 )
-            
-        movieinfo.flycoord.heading[i] = movieinfo.smooth_vel[i] / np.linalg.norm( movieinfo.smooth_vel[i] )
-        
-        heading3vec = np.hstack( (movieinfo.flycoord.heading[i], [0]) )
-        ori3vec = np.hstack( (movieinfo.smooth_ori[i], [0]) )
-        
-        sinslipangle = (np.cross( heading3vec, ori3vec ) / (np.linalg.norm(heading3vec)*np.linalg.norm(ori3vec))).sum()
-        movieinfo.flycoord.slipangle[i] = np.arcsin(sinslipangle)
         
         vec_to_post = post_pos - movieinfo.smooth_centers[i]
         movieinfo.flycoord.dist_to_post[i] = np.linalg.norm(vec_to_post)
@@ -307,14 +389,25 @@ def calc_fly_coordinates_with_scale(movieinfo):
     post_pos = np.array([512, 512])
     scale = movieinfo.scale
     movieinfo.scaled = Scaled()
-
-    movieinfo.scaled.dist_to_post = scale*movieinfo.flycoord.dist_to_post
-    movieinfo.scaled.signed_angletopost = movieinfo.flycoord.signed_angletopost
     
-    movieinfo.scaled.angle_subtended_by_post = 2*np.arcsin( movieinfo.trajec.stimulus.radius / (movieinfo.scaled.dist_to_post+movieinfo.trajec.stimulus.radius) ).reshape([movieinfo.scaled.dist_to_post.shape[0],1])
+    movieinfo.post_radius = movieinfo.post_radius_in_pixels*movieinfo.scale
+    
+    movieinfo.scaled.dist_to_post = scale*movieinfo.flycoord.dist_to_post
+    
+    movieinfo.scaled.head_pos = (movieinfo.smooth_head_pos-post_pos)*movieinfo.scale
+    movieinfo.scaled.dist_head_to_post = np.array([ np.linalg.norm(movieinfo.scaled.head_pos[i]) for i in range(len(movieinfo.scaled.head_pos)) ])
+    
+    movieinfo.scaled.signed_angletopost = movieinfo.flycoord.signed_angletopost
+    movieinfo.scaled.slipangle = movieinfo.flycoord.slipangle
+    
+    movieinfo.scaled.angle_subtended_by_post = 2*np.arcsin( movieinfo.post_radius / (movieinfo.scaled.dist_head_to_post) ).reshape([movieinfo.scaled.dist_head_to_post.shape[0],1])
+    # need to remove NAN's.. 
+    where_dist_less_than_zero = (np.where( np.isnan(movieinfo.scaled.angle_subtended_by_post) == True )[0]).tolist()
+    movieinfo.scaled.angle_subtended_by_post[where_dist_less_than_zero] = np.pi
     
     movieinfo.scaled.positions = (movieinfo.smooth_centers-post_pos)*movieinfo.scale
     movieinfo.scaled.velocities = movieinfo.smooth_vel*movieinfo.scale
+    movieinfo.scaled.speed = np.array([np.linalg.norm(movieinfo.scaled.velocities[i]) for i in range(len(movieinfo.scaled.velocities))])
     
     movieinfo.scaled.angle_to_edge = np.abs(movieinfo.scaled.signed_angletopost)-np.abs(movieinfo.scaled.angle_subtended_by_post)/2.
     movieinfo.scaled.angle_to_lower_edge = (np.abs(movieinfo.scaled.signed_angletopost) - movieinfo.scaled.angle_subtended_by_post/2.).reshape([len(movieinfo.scaled.signed_angletopost)])
@@ -356,8 +449,44 @@ def interpolate_to_new_framerate(movieinfo, framerate, old_timestamps, data):
     new_data = np.interp(new_timestamps, old_timestamps, data)
     return new_timestamps, new_data
     
-
-        
+###
+def get_frames_until_landing(movieinfo):
     
+    if movieinfo.landingframe is None:
+        frames = (np.array(movieinfo.framenumbers)-movieinfo.framenumbers[0]).tolist()
+        return frames
+        
+    else:
+        frames = ( np.where(np.array(movieinfo.framenumbers) < (movieinfo.landingframe-movieinfo.startframe)) [0] ).tolist()
+        return frames
+        
+###
+def get_time_nearest_to_post(movieinfo):
+    if movieinfo.landingframe is None:
+        f = np.argmin(movieinfo.scaled.dist_to_post)
+        t = movieinfo.timestamps[f]
+        return t
+    else:
+        return movieinfo.landingtime 
+    
+    
+###
+def frame_to_timestamp(movieinfo, frames):   
+    if type(frames) is list:
+        frames = np.array(frames)
+        framelist = (frames-movieinfo.startframe-movieinfo.framenumbers[0]).tolist()
+    elif type(frames) is np.ndarray:
+        framelist = (frames-movieinfo.startframe-movieinfo.framenumbers[0]).tolist()
+    else:
+        framelist = frames
+    timestamps = movieinfo.timestamps[framelist]
+    if len(timestamps) == 1:
+        timestamps = timestamps[0]
+    return timestamps
+
+
+
+
+
     
     
