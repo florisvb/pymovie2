@@ -1,11 +1,14 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
 import scipy.optimize
 from scipy.ndimage.measurements import center_of_mass
 import scipy.ndimage as ndimage
 import scipy.interpolate
 from scipy.ndimage.morphology import binary_erosion
+from scipy.ndimage.morphology import binary_dilation
+from scipy.ndimage.morphology import binary_fill_holes
 
 import copy
 
@@ -20,12 +23,11 @@ def in_range(val, rang):
         return True
     else:
         return False
-        
+    
 def threshold(img, threshold_lo, threshold_hi=255):
     threshed_lo = img>threshold_lo
     threshed_hi = img<threshold_hi
     threshed = threshed_lo*threshed_hi
-    threshed *= 255
     return threshed
     
 def absdiff(a,b):
@@ -88,6 +90,8 @@ def get_ellipse_cov(img, erode=False, recenter=True):
             except:
                 pass
                 
+        img = binary_fill_holes(img)
+                
         if recenter:
             center = center_of_blob(img)
         else:
@@ -110,15 +114,15 @@ def get_ellipse_cov(img, erode=False, recenter=True):
                 longaxis_radius = np.max( np.abs(dl) )
                 
                 ds = [np.dot(shortaxis, ptsT[i]) for i in range(len(ptsT))]
-                shortaxis_radius = np.min( np.abs(ds) )
+                shortaxis_radius = np.max( np.abs(ds) )
             else:
                 longaxis_radius = None
                 shortaxis_radius = None
                 
         if recenter is False:
-            return longaxis, [longaxis_radius, shortaxis_radius]
+            return longaxis, shortaxis, [longaxis_radius, shortaxis_radius]
         else:
-            return center, longaxis, [longaxis_radius, shortaxis_radius]
+            return center, longaxis, shortaxis, [longaxis_radius, shortaxis_radius]
             
     else:
         return [0,0],0
@@ -151,6 +155,65 @@ def rotate_image(img, rot):
                 wrot += img.shape[1]
             imgrot[rrot, wrot] = img[r,w]
     return imgrot
+    
+def find_circle(img, npts=25, nstart=0, navg=20, plot=False):
+
+    filled_img = binary_fill_holes(img)
+    dil_img = binary_dilation(filled_img)
+    edges = dil_img-filled_img
+    pts = np.transpose(np.nonzero(edges))
+    
+    # select an evenly spaced subset of points (to speed up computation):
+    if len(pts) > npts:
+        indices = np.linspace(nstart, len(pts)-1, npts)
+        indices = [int(indices[i]) for i in range(len(indices))]        
+    else:
+        indices = np.arange(0, len(pts), 1).tolist()
+    pts_subset = pts[indices,:]
+    
+    len_pts_diff = np.arange(1,len(pts_subset), 1)
+    
+    pts_diff = np.zeros(np.sum(len_pts_diff))
+    pts_diff_arr = np.zeros([np.sum(len_pts_diff), 2])
+    
+    iarr = 0
+    for i in range(len(pts_subset)):
+        indices = np.arange(i+1, len(pts_subset), 1)
+        pts_diff_arr[iarr:len(indices)+iarr, 1] = indices
+        pts_diff_arr[iarr:len(indices)+iarr, 0] = np.ones_like(indices)*i
+        
+        d_arr = pts_subset[indices.tolist(), :] - pts_subset[i,:]
+        d = np.array( [np.linalg.norm(d_arr[n]) for n in range(len(d_arr))] )
+        pts_diff[iarr:len(indices)+iarr] = d
+        
+        iarr += len(indices)
+        
+    ordered_pairs = np.argsort(pts_diff)[::-1]
+    best_pairs = pts_diff_arr[(ordered_pairs[0:navg]).tolist()]
+    
+    center_arr = np.zeros([len(best_pairs), 2])
+    radius_arr = np.zeros([len(best_pairs), 1])
+    
+    #centers = np.zeros([len(best_pairs)])
+    for i, pair in enumerate(best_pairs):
+        pt1 = np.array(pts_subset[ pair[0] ], dtype=float)
+        pt2 = np.array(pts_subset[ pair[1] ], dtype=float)
+    
+        pt_diff = pt2 - pt1
+        radius_arr[i] = np.linalg.norm( pt_diff ) / 2.
+        center_arr[i] = pt1 + pt_diff/2
+        
+    center = np.mean(center_arr, axis=0)
+    radius = np.mean(radius_arr)
+    
+    if plot:
+        fig = plt.figure(None)
+        ax = fig.add_axes([.1,.1,.8,.8])
+        circle = patches.Circle( center, radius=radius, facecolor='none', edgecolor='green')
+        ax.add_artist(circle)
+        ax.imshow(edges)
+        
+    return center, radius
     
     
 ###############################################################################
@@ -309,7 +372,7 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
     thresh_adj = 0
     blob = []
     while np.sum(blob) <= 0: # use while loop to force finding an object
-        diffthresh = threshold(diff, thresh+thresh_adj, threshold_hi=255)
+        diffthresh = threshold(diff, thresh+thresh_adj, threshold_hi=255)*255
         
         # find blobs
         if guess is not None:
@@ -367,7 +430,7 @@ def find_object(img, background=None, threshrange=[1,254], sizerange=[10,400], d
     else:
         diff = img
     imgadj = auto_adjust_levels(diff)
-    body = threshold(imgadj, threshrange[0], threshrange[1])
+    body = threshold(imgadj, threshrange[0], threshrange[1])*255
     
     if erode is not False:
         for i in range(erode):
@@ -407,9 +470,11 @@ def find_ellipse(img, background=None, threshrange=[1,254], sizerange=[10,400], 
 
     if body.sum() < 1 and check_centers==True:
         body = find_object(img, background=background, threshrange=threshrange, sizerange=sizerange, dist_thresh=dist_thresh, erode=erode, check_centers=False)
+        
+    body = binary_fill_holes(body)
 
-    center, long_axis, ratio = get_ellipse_cov(body, erode=False, recenter=True)
+    center, longaxis, shortaxis, ratio = get_ellipse_cov(body, erode=False, recenter=True)
     
-    return center, long_axis, body, ratio
+    return center, longaxis, shortaxis, body, ratio
     
     

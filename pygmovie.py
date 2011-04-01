@@ -122,6 +122,7 @@ def process_movie(movieinfo, framerange=None, nframes=None):
     
     movieinfo.obj_centers = np.zeros([nframes, 2])
     movieinfo.obj_longaxis = np.zeros([nframes, 2])
+    movieinfo.obj_shortaxis = np.zeros([nframes, 2])
     movieinfo.obj_ratio = np.zeros([nframes, 2])
     movieinfo.frames = [Frame() for frame in framerange]
     
@@ -149,7 +150,7 @@ def process_movie(movieinfo, framerange=None, nframes=None):
         
         ubackground = nim.extract_uimg(background, uimg.shape, zero)
         
-        relative_center_of_body, long_axis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
+        relative_center_of_body, longaxis, shortaxis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
         
         center_of_body = relative_center_of_body + zero
         #center_of_body = center
@@ -160,7 +161,8 @@ def process_movie(movieinfo, framerange=None, nframes=None):
         frame.framenumber = framenumber
         
         movieinfo.obj_centers[f,:] = copy.copy(center_of_body)
-        movieinfo.obj_longaxis[f,:] = copy.copy(long_axis)
+        movieinfo.obj_longaxis[f,:] = copy.copy(longaxis)
+        movieinfo.obj_shortaxis[f,:] = copy.copy(shortaxis)
         movieinfo.obj_ratio[f,:] = copy.copy(ratio)
         
         del(raw)
@@ -177,6 +179,7 @@ def reprocess_uframes(movieinfo):
     
     movieinfo.obj_centers = np.zeros([nframes, 2])
     movieinfo.obj_longaxis = np.zeros([nframes, 2])
+    movieinfo.obj_shortaxis = np.zeros([nframes, 2])
     movieinfo.obj_ratio = np.zeros([nframes, 2])
     
     for f, framenumber in enumerate(framerange):
@@ -186,13 +189,14 @@ def reprocess_uframes(movieinfo):
         
         ubackground = nim.extract_uimg(movieinfo.background, uimg.shape, zero)
             
-        relative_center_of_body, long_axis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
+        relative_center_of_body, longaxis, shortaxis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
         
         center_of_body = relative_center_of_body + zero
         #center_of_body = center
         
         movieinfo.obj_centers[f,:] = center_of_body
-        movieinfo.obj_longaxis[f,:] = long_axis
+        movieinfo.obj_longaxis[f,:] = longaxis
+        movieinfo.obj_shortaxis[f,:] = shortaxis
         movieinfo.obj_ratio[f,:] = ratio
         
 ###

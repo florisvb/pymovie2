@@ -52,7 +52,7 @@ def smooth_centers(data, plot=False):
                      [0,1,0,0]],
                     dtype=np.float)
     Q = 0.0001*np.eye(ss) # process noise
-    R = 100*np.eye(os) # observation noise
+    R = 500*np.eye(os) # observation noise
 
     init_vel = np.mean(np.diff(data[0:20,:], axis=0), axis=0)
 
@@ -90,7 +90,7 @@ def smooth_orientation_2d(ori, plot=False):
     return xsmooth
 
 ###
-def fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=2.5, pixelspeed_threshold=100):
+def fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=1.0, pixelspeed_threshold=100):
     ori = movieinfo.obj_longaxis
     Vel = movieinfo.smooth_vel
     
@@ -123,35 +123,31 @@ def fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=2.5
             
         else:
             switchingthreshold = switching_threshold         
-    
-            dot_prev_ori[i] = np.dot(smooth_ori[i-1], ori[i])
             dot_vel[i] = np.dot(vel[i], ori[i])
-            
             direction = 1.
-
             if dot_vel[i] < 0 and np.abs(dot_vel[i]) > switchingthreshold:
                 direction = -1
-            else:
-                if dot_prev_ori[i] < 0: # not aligned with previous frame by > 90 deg
-                    direction = -1
-                    
-                    if 0:
-                        if dot_vel[i] < 0: # orientation not aligned with velocity
-                            if np.abs(dot_vel[i]) > switchingthreshold:
-                                direction = -1
-                        if dot_vel[i] > 0: # orientation is aligned with velocity, but not with prev ori
-                            if np.abs(dot_vel[i]) > switchingthreshold:
-                                direction = 1
-                        
+                
             smooth_ori[i] = ori[i]*direction
+                
+            if 1:
+                dot_prev_ori[i] = np.dot(smooth_ori[i-1], smooth_ori[i])
+                if dot_prev_ori[i] < 0: # not aligned with previous frame by > 90 deg
+                    print i, direction
+                    direction = -1
+                    print i, direction 
+                else:
+                    direction = 1
+                 
+            smooth_ori[i] = smooth_ori[i]*direction
             
             ratio = movieinfo.smooth_ratio[i, 0] / movieinfo.smooth_ratio[i, 1]
             ratiop = movieinfo.smooth_ratio[i-1, 0] / movieinfo.smooth_ratio[i-1, 1]
-            if np.isnan(ratio) or ratio < ratio_threshold or pixelspeed[i]<pixelspeed_threshold or np.abs(ratio-ratiop) > 2:
+            if np.isnan(ratio) or ratio < ratio_threshold:
                 smooth_ori[i] = smooth_ori[i-1]
                 
-            if np.linalg.norm(smooth_ori[i] - smooth_ori[i-1]) > 0.4:
-                smooth_ori[i] = smooth_ori[i-1] 
+            #if np.linalg.norm(smooth_ori[i] - smooth_ori[i-1]) > 0.4:
+            #    smooth_ori[i] = smooth_ori[i-1] 
         
     return smooth_ori
     
@@ -237,21 +233,18 @@ def process_movie_dataset(movie_dataset):
 
     keys = movie_dataset.get_movie_keys()
     for key in keys:
-        print 'processing: ', key
         movieinfo = movie_dataset.movies[key]
         process_movieinfo(movieinfo)
 
 
 ###
 def process_movieinfo(movieinfo):
+    print 'processing: ', movieinfo.id
     smooth_movieinfo(movieinfo)
     movieinfo.smooth_head_pos = movieinfo.smooth_centers + (movieinfo.smooth_ratio[:,0].reshape([len(movieinfo.smooth_ratio[:,0]),1]))*movieinfo.smooth_ori
     movieinfo.smooth_head_pos = interpolate_nan(movieinfo.smooth_head_pos)
     
     calc_post_pos(movieinfo)
-    # post info from looking at overlays
-    #movieinfo.post_pos = np.array([509.4, 509.4])
-    #movieinfo.post_radius_in_pixels = 68.15
     
     calc_fly_coordinates(movieinfo)
     calc_scale(movieinfo)
@@ -268,7 +261,7 @@ def smooth_movieinfo(movieinfo):
     movieinfo.smooth_vel = xsmooth[:,2:4] * float(movieinfo.framerate)
     calc_fly_heading(movieinfo)
     
-    fixed_ori = fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=2.5, pixelspeed_threshold=100)
+    fixed_ori = fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=1.4, pixelspeed_threshold=100)
     #remove_orientation_errors_due_short_major_axis(movieinfo, thresh=2, pixelspeed=70, plot=False)
 
     xsmooth = smooth_orientation_2d(fixed_ori)
@@ -301,11 +294,11 @@ def remove_orientation_errors_due_short_major_axis(movieinfo, thresh=2, pixelspe
     
 ###
 def calc_post_pos(movieinfo):
-    threshed_img = nim.threshold(movieinfo.background, 0, 40)
+    threshed_img = nim.threshold(movieinfo.background, 0, 35)
     blob = nim.find_biggest_blob(threshed_img)
-    center, longaxis, ratio = nim.get_ellipse_cov(blob, erode=1, recenter=True)
+    center, radius = nim.find_circle(blob, npts=200, navg=30, nstart=0, plot=False)
     movieinfo.post_pos = center
-    movieinfo.post_radius_in_pixels = ratio[0]
+    movieinfo.post_radius_in_pixels = radius
     
 ###
 def calc_fly_heading(movieinfo, pixelspeed_threshold=100):
@@ -322,11 +315,10 @@ def calc_fly_heading(movieinfo, pixelspeed_threshold=100):
     movieinfo.heading = heading
     
 ###
-def calc_fly_coordinates(movieinfo, post_pos = [512, 512]):
-
-    class Flycoord:
+class Flycoord:
         pass
-        
+def calc_fly_coordinates(movieinfo):
+
     movieinfo.flycoord = Flycoord()
     post_pos = movieinfo.post_pos
     
@@ -343,7 +335,8 @@ def calc_fly_coordinates(movieinfo, post_pos = [512, 512]):
     ori3vec = np.hstack( (movieinfo.smooth_ori, np.zeros([movieinfo.smooth_ori.shape[0], 1]) ) )
     for i in range(len(ori3vec)):
         sinslipangle = (np.cross( heading3vec[i], ori3vec[i] ) / (np.linalg.norm(heading3vec[i])*np.linalg.norm(ori3vec[i]))).sum()
-        movieinfo.flycoord.slipangle[i] = np.arcsin(sinslipangle)
+        cosslipangle = np.dot( heading3vec[i], ori3vec[i] ) / (np.linalg.norm(heading3vec[i])*np.linalg.norm(ori3vec[i]))
+        movieinfo.flycoord.slipangle[i] = -1*np.sign(sinslipangle)*np.arccos(cosslipangle)
         
     # misc
     for i in range(len(movieinfo.smooth_centers)):
@@ -369,24 +362,23 @@ def calc_fly_coordinates(movieinfo, post_pos = [512, 512]):
     
     y = np.sin(movieinfo.flycoord.worldangle)
     x = np.cos(movieinfo.flycoord.worldangle)
-    #print y.shape, x.shape, np.hstack( (x,y) ).shape, np.zeros([len(x),1]).shape
     smooth_ori_3vec = np.hstack( ( np.hstack( (x,y) ), np.zeros([len(x),1]) ) )
-    vec_to_post_3vec = -1*np.hstack( (movieinfo.flycoord.vec_to_post, np.zeros([len(movieinfo.flycoord.vec_to_post),1]) ) ) # -1* is because essentially we just subtract the vector to the post from (0,0)
+    vec_to_post_3vec = np.hstack( (movieinfo.flycoord.vec_to_post, np.zeros([len(movieinfo.flycoord.vec_to_post),1]) ) ) 
     
     signed_angle_to_post_smooth = np.sum(np.cross( vec_to_post_3vec, smooth_ori_3vec ), axis=1).reshape([vec_to_post_3vec.shape[0],1])
     mag_vec_to_post = np.array([ np.linalg.norm( vec_to_post_3vec[i,:] )  for i in range(vec_to_post_3vec.shape[0]) ]).reshape([vec_to_post_3vec.shape[0], 1])
     mag_ori = np.array([ np.linalg.norm( smooth_ori_3vec[i,:] )  for i in range(smooth_ori_3vec.shape[0]) ]).reshape([smooth_ori_3vec.shape[0], 1])
     sin_signed_angle_to_post = signed_angle_to_post_smooth / (mag_vec_to_post*mag_ori)
-    
-    movieinfo.flycoord.signed_angletopost = np.arcsin(sin_signed_angle_to_post)
+    sign_of_angle_to_post = np.sign(np.arcsin(sin_signed_angle_to_post))
+     
+    movieinfo.flycoord.signed_angletopost = -1*movieinfo.flycoord.angletopost*sign_of_angle_to_post
 
 ###    
+class Scaled:
+        pass
 def calc_fly_coordinates_with_scale(movieinfo):
 
-    class Scaled:
-        pass
-        
-    post_pos = np.array([512, 512])
+    post_pos = movieinfo.post_pos
     scale = movieinfo.scale
     movieinfo.scaled = Scaled()
     
@@ -397,8 +389,8 @@ def calc_fly_coordinates_with_scale(movieinfo):
     movieinfo.scaled.head_pos = (movieinfo.smooth_head_pos-post_pos)*movieinfo.scale
     movieinfo.scaled.dist_head_to_post = np.array([ np.linalg.norm(movieinfo.scaled.head_pos[i]) for i in range(len(movieinfo.scaled.head_pos)) ])
     
-    movieinfo.scaled.signed_angletopost = movieinfo.flycoord.signed_angletopost
-    movieinfo.scaled.slipangle = movieinfo.flycoord.slipangle
+    movieinfo.scaled.signed_angletopost = remove_angular_rollover(movieinfo.flycoord.signed_angletopost, .5)
+    movieinfo.scaled.slipangle = remove_angular_rollover(movieinfo.flycoord.slipangle, .5)
     
     movieinfo.scaled.angle_subtended_by_post = 2*np.arcsin( movieinfo.post_radius / (movieinfo.scaled.dist_head_to_post) ).reshape([movieinfo.scaled.dist_head_to_post.shape[0],1])
     # need to remove NAN's.. 
@@ -410,24 +402,24 @@ def calc_fly_coordinates_with_scale(movieinfo):
     movieinfo.scaled.speed = np.array([np.linalg.norm(movieinfo.scaled.velocities[i]) for i in range(len(movieinfo.scaled.velocities))])
     
     movieinfo.scaled.angle_to_edge = np.abs(movieinfo.scaled.signed_angletopost)-np.abs(movieinfo.scaled.angle_subtended_by_post)/2.
-    movieinfo.scaled.angle_to_lower_edge = (np.abs(movieinfo.scaled.signed_angletopost) - movieinfo.scaled.angle_subtended_by_post/2.).reshape([len(movieinfo.scaled.signed_angletopost)])
-    movieinfo.scaled.angle_to_upper_edge = (np.abs(movieinfo.scaled.signed_angletopost) + movieinfo.scaled.angle_subtended_by_post/2.).reshape([len(movieinfo.scaled.signed_angletopost)])
+    movieinfo.scaled.angle_to_lower_edge = (movieinfo.scaled.signed_angletopost - movieinfo.scaled.angle_subtended_by_post/2.).reshape([len(movieinfo.scaled.signed_angletopost)])
+    movieinfo.scaled.angle_to_upper_edge = (movieinfo.scaled.signed_angletopost + movieinfo.scaled.angle_subtended_by_post/2.).reshape([len(movieinfo.scaled.signed_angletopost)])
     
     
     
 ###
 def calc_scale(movieinfo, plot=False):
-    nt, flydra_dist = interpolate_to_new_framerate(movieinfo, 200, movieinfo.trajec.epoch_time, movieinfo.trajec.dist_to_stim_r)
+    nt, flydra_dist = interpolate_to_new_framerate(movieinfo, 200, movieinfo.trajec.epoch_time, movieinfo.trajec.dist_to_stim_r+movieinfo.trajec.stimulus.radius)
     nt, sa1_dist = interpolate_to_new_framerate(movieinfo, 200, movieinfo.timestamps, movieinfo.flycoord.dist_to_post)
     
     if movieinfo.behavior == 'landing': # ignore last bit
-        frames_away_from_post = np.where(flydra_dist > .007)[0]
+        frames_away_from_post = np.where(flydra_dist > .005)[0]
         flydra_dist = flydra_dist[frames_away_from_post]
         sa1_dist = sa1_dist[frames_away_from_post]
         nt = nt[frames_away_from_post]
         
-    sa1_dist -= np.min(sa1_dist)
-    flydra_dist -= np.min(flydra_dist)
+    #sa1_dist -= movieinfo.post_pos #np.min(sa1_dist)
+    #flydra_dist -= np.min(flydra_dist)
     
     scale_arr = flydra_dist / sa1_dist
     scale = np.median(scale_arr) # get problems with zeros in denominator / numerator if use mean
@@ -484,7 +476,9 @@ def frame_to_timestamp(movieinfo, frames):
         timestamps = timestamps[0]
     return timestamps
 
-
+###
+def get_frame_from_timestamp(movieinfo, timestamp):
+    return np.argmin( np.abs(movieinfo.timestamps - timestamp) )
 
 
 

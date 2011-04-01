@@ -6,13 +6,13 @@ import numpy as np
 
 import sys
 sys.path.append('/home/floris/src/analysis')
-
+import sa1_analysis as sa1
 
 class MovieDataset:
         def __init__(self):
             self.movies = {}
             
-        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True):
+        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True, error=False, abovepost=False):
             if behavior is None:
                 behavior = ['landing', 'flyby']
             else:
@@ -34,7 +34,24 @@ class MovieDataset:
                 except:
                     isprocessed = False
                     
-                if movieinfo.behavior in behavior and movieinfo.posttype in posttype and movieinfo.infocus == infocus and isprocessed == processed:
+                # for manually coded errors in processing
+                try:
+                    movieerror = movieinfo.error
+                except:
+                    movieerror = False
+                    
+                # check to make sure fly is below the level of the post for the duration of the SA1 video
+                if isprocessed:
+                    nt, flydra_altitude = sa1.interpolate_to_new_framerate(movieinfo, 100, movieinfo.trajec.epoch_time, movieinfo.trajec.positions[:,2])
+                    maxaltitude = np.max(flydra_altitude)
+                    if maxaltitude > 0:
+                        isabovepost = True
+                    else:
+                        isabovepost = False
+                else:
+                    isabovepost = abovepost
+                    
+                if movieinfo.behavior in behavior and movieinfo.posttype in posttype and movieinfo.infocus == infocus and isprocessed == processed and movieerror == error and isabovepost == abovepost:
                     movie_keys.append(key)
             return movie_keys
             
@@ -127,7 +144,7 @@ def load_movie_info_from_movie_files(movie_dataset):
             if line_number == 3:
                 movie.time_created = [int(entry[1]), int(entry[2])]
             if line_number == 13:
-                movie.framerate = int(entry[1])
+                movie.framerate = float(int(entry[1]))
             if line_number == 18:
                 movie.startframe = int(entry[1])
             if line_number == 17:
@@ -248,6 +265,7 @@ def calc_sa1_timestamps(movie_dataset):
     
         if movie.landingframe is not None:
             movie.landingtime = movie.timestamps[movie.landingframe - movie.firstframe_ofinterest]
+            movie.landingframe_relative = movie.landingframe - movie.firstframe_ofinterest
         else:
             movie.landingtime = None
         
