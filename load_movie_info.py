@@ -12,7 +12,15 @@ class MovieDataset:
         def __init__(self):
             self.movies = {}
             
-        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True, error=False, abovepost=False):
+        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True, error=False, abovepost=False, fake=False):
+        
+            if behavior == 'fake':
+                fake = True
+        
+            if fake:
+                print 'fake'
+                return self.movies.keys()
+        
             if behavior is None:
                 behavior = ['landing', 'flyby']
             else:
@@ -97,6 +105,7 @@ def load_movie_info_from_movie_list(movie_list, movie_dataset=None):
         subbehavior = entry[4]
         subbehavior_parsed = subbehavior.split('&')
         movieinfo.subbehavior = subbehavior_parsed 
+        movieinfo.fake = False
         
         movieinfo.firstframe_ofinterest = int(entry[5])
         movieinfo.lastframe_ofinterest = int(entry[7])

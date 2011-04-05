@@ -14,7 +14,7 @@ def interpolate_nan(Array):
     if True in np.isnan(Array):
         array = copy.copy(Array)
         for i in range(2,len(array)):
-            if np.isnan(array[i]):
+            if np.isnan(array[i]).any():
                 array[i] = array[i-1]
         return array
     else:
@@ -240,27 +240,38 @@ def process_movie_dataset(movie_dataset):
 ###
 def process_movieinfo(movieinfo):
     print 'processing: ', movieinfo.id
+
+    try: fake = movieinfo.fake
+    except: fake = False
+
     smooth_movieinfo(movieinfo)
     movieinfo.smooth_head_pos = movieinfo.smooth_centers + (movieinfo.smooth_ratio[:,0].reshape([len(movieinfo.smooth_ratio[:,0]),1]))*movieinfo.smooth_ori
     movieinfo.smooth_head_pos = interpolate_nan(movieinfo.smooth_head_pos)
     
-    calc_post_pos(movieinfo)
+    if not fake: calc_post_pos(movieinfo)
     
     calc_fly_coordinates(movieinfo)
-    calc_scale(movieinfo)
+    
+    if not fake: calc_scale(movieinfo)
+    else: movieinfo.scale = 1 
     calc_fly_coordinates_with_scale(movieinfo)
     
     
 ###
 def smooth_movieinfo(movieinfo):
+    try: fake = movieinfo.fake
+    except: fake = False
     
     movieinfo.smooth_ratio = smooth_centers(movieinfo.obj_ratio)
-    
     xsmooth = smooth_centers(movieinfo.obj_centers)
     movieinfo.smooth_centers = xsmooth[:,0:2]
     movieinfo.smooth_vel = xsmooth[:,2:4] * float(movieinfo.framerate)
-    calc_fly_heading(movieinfo)
     
+    if not fake:
+        calc_fly_heading(movieinfo)
+    else:
+        calc_fly_heading(movieinfo, pixelspeed_threshold=0)
+        
     fixed_ori = fix_orientation_2d(movieinfo, switching_threshold = 0.2, ratio_threshold=1.4, pixelspeed_threshold=100)
     #remove_orientation_errors_due_short_major_axis(movieinfo, thresh=2, pixelspeed=70, plot=False)
 
@@ -307,7 +318,6 @@ def calc_fly_heading(movieinfo, pixelspeed_threshold=100):
     pixelspeed = np.array([ np.linalg.norm(Vel[i,:]) for i in range(len(Vel))])
     heading = np.zeros_like(vel)
     for i in range(len(pixelspeed)):
-        
         if pixelspeed[i] > pixelspeed_threshold:
             heading[i] = vel[i]
         else:
@@ -358,7 +368,7 @@ def calc_fly_coordinates(movieinfo):
     movieinfo.flycoord.vel = rotate_coordinates(movieinfo.smooth_vel, movieinfo.smooth_ori, movieinfo.smooth_shortaxis)
     movieinfo.flycoord.slipangle = movieinfo.flycoord.slipangle.reshape(len(movieinfo.flycoord.slipangle))
     
-    movieinfo.trajec.angle_subtended_by_post = 2*np.arcsin( movieinfo.trajec.stimulus.radius / (movieinfo.trajec.dist_to_stim_r+movieinfo.trajec.stimulus.radius) ).reshape([movieinfo.trajec.dist_to_stim_r.shape[0],1])
+    #movieinfo.trajec.angle_subtended_by_post = 2*np.arcsin( movieinfo.trajec.stimulus.radius / (movieinfo.trajec.dist_to_stim_r+movieinfo.trajec.stimulus.radius) ).reshape([movieinfo.trajec.dist_to_stim_r.shape[0],1])
     
     y = np.sin(movieinfo.flycoord.worldangle)
     x = np.cos(movieinfo.flycoord.worldangle)
@@ -477,10 +487,39 @@ def frame_to_timestamp(movieinfo, frames):
     return timestamps
 
 ###
-def get_frame_from_timestamp(movieinfo, timestamp):
-    return np.argmin( np.abs(movieinfo.timestamps - timestamp) )
+def get_frame_from_timestamp(movieinfo, timestamp, timestamps=None):
+    if timestamps is None:
+        return np.argmin( np.abs(movieinfo.timestamps - timestamp) )
+    else:
+        return np.argmin( np.abs(timestamps - timestamp) )
 
-
-
+###
+def get_angle_to_nearest_edge(obj_pos, obj_ori, post_pos, post_radius):
     
+    vec_to_post = post_pos - obj_pos
+    dist_pos_to_post = np.linalg.norm(vec_to_post)
+    obj_ori /= np.linalg.norm(obj_ori)    
     
+    worldangle = np.arctan2(obj_ori[1], obj_ori[0]) # want angle between 0 and 360 deg
+    if worldangle < 0:
+        worldangle = np.pi*2+worldangle
+    # remove angular rollover?    
+    
+    obj_ori_3vec = np.hstack( ( obj_ori, 0) ) 
+    vec_to_post_3vec = np.hstack( (vec_to_post, 0 ) ) 
+    
+    signed_angle_to_post = np.sum(np.cross( vec_to_post_3vec, obj_ori_3vec ) )
+    sin_signed_angle_to_post = signed_angle_to_post / (dist_pos_to_post)
+    sign_of_angle_to_post = np.sign(np.arcsin(sin_signed_angle_to_post))
+    
+    cosangletopost = np.dot(vec_to_post, obj_ori) / dist_pos_to_post 
+    angletopost = np.arccos(cosangletopost)
+     
+    signed_angletopost = -1*angletopost*sign_of_angle_to_post
+    
+    angle_subtended_by_post = 2*np.arcsin( post_radius / (dist_pos_to_post) )
+    # need to remove NAN's.. 
+    if np.isnan(angle_subtended_by_post): angle_subtended_by_post = np.pi
+    angle_to_edge = np.abs(signed_angletopost)-np.abs(angle_subtended_by_post)/2.
+    
+    return worldangle, angle_to_edge    
