@@ -146,7 +146,7 @@ def process_movie(movieinfo, framerange=None, nframes=None):
                 guess_radius = None
                 
         
-        center, uimg, zero, mimg = nim.find_object_with_background_subtraction(raw, background, mask=tracking_mask, guess=guess, guess_radius=guess_radius, sizerange=[10,600], thresh=10, uimg_roi_radius=30, return_uimg=True, return_mimg=True)
+        center, uimg, zero = nim.find_object_with_background_subtraction(raw, background, mask=tracking_mask, guess=guess, guess_radius=guess_radius, sizerange=[10,600], thresh=10, uimg_roi_radius=30, return_uimg=True, return_mimg=False)
         
         ubackground = nim.extract_uimg(background, uimg.shape, zero)
         
@@ -156,7 +156,7 @@ def process_movie(movieinfo, framerange=None, nframes=None):
         #center_of_body = center
         
         frame.uimg = copy.copy(uimg)
-        frame.mimg = mimg
+        #frame.mimg = mimg
         frame.zero = zero
         frame.framenumber = framenumber
         
@@ -206,9 +206,10 @@ def reprocess_movie_dataset(movie_dataset):
         movieinfo = movie_dataset.movies[key]
         reprocess_uframes(movieinfo) 
 ###
-def batch_process_movies(saveas='movie_dataset_test'):
-    movie_dataset = load_movie_info.load()
-    movie_dataset_empty = copy.copy(movie_dataset)
+def batch_process_movies(saveas='movie_dataset_extended', movie_dataset=None):
+
+    movie_dataset = load_movie_info.load(movie_dataset)
+    movie_dataset_empty = load_movie_info.load()
     
     save(movie_dataset, saveas)
     del(movie_dataset)
@@ -216,6 +217,16 @@ def batch_process_movies(saveas='movie_dataset_test'):
     
     
     for k, movie in movie_dataset_empty.movies.items():  
+    
+        # check to make sure movie hasn't been processed already
+        try:
+            tmp = movie.frames
+            print 'already processed, skipping: ', k
+            del(tmp)
+            continue
+        except:
+            pass
+            
         if movie.infocus == 1:
             movieinfo = copy.copy(movie)
             process_movie(movieinfo)

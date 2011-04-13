@@ -11,8 +11,8 @@ import sa1_analysis as sa1
 class MovieDataset:
         def __init__(self):
             self.movies = {}
-            
-        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True, error=False, abovepost=False, fake=False):
+                
+        def get_movie_keys(self, behavior=None, posttype=None, infocus=1, processed=True, error=False, abovepost=False, fake=False, crash=False, flydratrajec=True):
         
             if behavior == 'fake':
                 fake = True
@@ -37,10 +37,14 @@ class MovieDataset:
             for key, movieinfo in self.movies.items():
                 try:
                     tmp = movieinfo.obj_centers
-                    del(tmp)
                     isprocessed = True
                 except:
                     isprocessed = False
+                    
+                if movieinfo.trajec is None:
+                    hasflydra = False
+                else:
+                    hasflydra = True
                     
                 # for manually coded errors in processing
                 try:
@@ -49,18 +53,32 @@ class MovieDataset:
                     movieerror = False
                     
                 # check to make sure fly is below the level of the post for the duration of the SA1 video
-                if isprocessed:
+                if isprocessed and hasflydra==flydratrajec:
                     nt, flydra_altitude = sa1.interpolate_to_new_framerate(movieinfo, 100, movieinfo.trajec.epoch_time, movieinfo.trajec.positions[:,2])
                     maxaltitude = np.max(flydra_altitude)
-                    if maxaltitude > 0:
+                    if maxaltitude > -.005:
                         isabovepost = True
                     else:
                         isabovepost = False
                 else:
                     isabovepost = abovepost
                     
-                if movieinfo.behavior in behavior and movieinfo.posttype in posttype and movieinfo.infocus == infocus and isprocessed == processed and movieerror == error and isabovepost == abovepost:
-                    movie_keys.append(key)
+                if 'landing' in behavior:
+                    if 'crash' in movieinfo.subbehavior or 'wingcrash' in movieinfo.subbehavior:
+                        iscrash = True
+                    else:
+                        iscrash = False
+                else:
+                    iscrash=crash
+                    
+                if 'all' in behavior:
+                    if movieinfo.infocus == infocus and isprocessed == processed and movieerror == error and isabovepost == abovepost and hasflydra==flydratrajec:
+                        movie_keys.append(key)
+                
+                else:
+                    if movieinfo.behavior in behavior and movieinfo.posttype in posttype and movieinfo.infocus == infocus and isprocessed == processed and movieerror == error and isabovepost == abovepost and iscrash == crash and hasflydra==flydratrajec:
+                        movie_keys.append(key)
+                    
             return movie_keys
             
         def get_movie(self, behavior=None, posttype=None):
@@ -94,7 +112,7 @@ def load_movie_info_from_movie_list(movie_list, movie_dataset=None):
         movieid = entry[1]
         if movieid not in movie_dataset.movies.keys():
             movieinfo = MovieInfo() 
-            movie_dataset.movies.setdefault(movieinfo.id, movieinfo)
+            movie_dataset.movies.setdefault(movieid, movieinfo)
         else:
             movieinfo = movie_dataset.movies[movieid]
         
@@ -273,10 +291,14 @@ def calc_sa1_timestamps(movie_dataset):
         movie.timestamps = all_timestamps[movie.framenumbers]
     
         if movie.landingframe is not None:
-            movie.landingtime = movie.timestamps[movie.landingframe - movie.firstframe_ofinterest]
+            print movie.landingframe, movie.firstframe_ofinterest, movie.framenumbers[0], movie.framenumbers[-1], movie.timestamps.shape
             movie.landingframe_relative = movie.landingframe - movie.firstframe_ofinterest
+            movie.landingtime = movie.timestamps[movie.landingframe - movie.firstframe_ofinterest]
         else:
             movie.landingtime = None
+            
+        movie.localhour = time.localtime(movie.timestamps[0]).tm_hour
+          
         
 def calc_syncronized_timerange(movie_dataset):
     for key, movie in movie_dataset.movies.items():
@@ -285,10 +307,10 @@ def calc_syncronized_timerange(movie_dataset):
             last_sync_time = np.min( [movie.trajec.epoch_time[-1], movie.timestamps[-1]] )
             movie.syncrange = [first_sync_time, last_sync_time]
             
-def load():
+def load(movie_dataset = None):
 
-    movie_list = '/home/floris/data/sa1_movie_data/sa1_movie_processing_info/sa1_movie_list_info'
-    movie_dataset = load_movie_info_from_movie_list(movie_list)
+    movie_list = '/home/floris/data/sa1_movie_data/sa1_movie_processing_info/sa1_movie_list_info_2'
+    movie_dataset = load_movie_info_from_movie_list(movie_list, movie_dataset=movie_dataset)
     load_movie_info_from_movie_files(movie_dataset)
     
     obj_id_list = load_obj_ids_from_directory()
@@ -305,6 +327,8 @@ def load():
     calc_syncronized_timerange(movie_dataset)
     
     return movie_dataset
+    
+    
             
 if __name__ == '__main__':
 

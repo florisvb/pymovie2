@@ -242,7 +242,15 @@ def plot_circle(xmesh, ymesh, center, r):
 ###############################################################################
 
 
-def find_blobs(img, sizerange=[0,inf], aslist=True):
+def find_blobs(img, sizerange=[0,inf], aslist=True, dilate=False, erode=False):
+
+    if dilate:
+        for i in range(dilate):
+            img = binary_dilation(img)
+    if erode:
+        for i in range(erode):
+            img = binary_erosion(img)  
+        
     blobs, nblobs = ndimage.label(img)
     blob_list = []
     if nblobs < 1:

@@ -12,26 +12,61 @@ import numpyimgproc as nim
 import pickle
 from optparse import OptionParser
 
-def play(frames, delay=0, magnify=1):
+def play_movieinfo(movieinfo, nframes=None, delay=0, magnify=1, show_background=True, adjust_blit_position=True):
+    if nframes is None:
+        frames = [movieinfo.frames[i].uimg for i in range(len(movieinfo.frames))]
+    else:
+        nframes = np.min([nframes, len(movieinfo.frames)])
+        frames = [movieinfo.frames[i].uimg for i in range(nframes)]
+    
+    if show_background:
+        background = movieinfo.background
+    else:
+        background = None
+
+    if adjust_blit_position:
+        blit_position = [movieinfo.frames[i].zero for i in range(len(frames))]
+    else:
+        blit_position = None
+        
+    play(frames, delay=delay, magnify=magnify, background=background, blit_position=blit_position)
+
+def play(frames, delay=0, magnify=1, background=None, blit_position=None):
 
     w = window.Window(visible=False, resizable=True)
     
     
-    arr = numpy.zeros([60,60], dtype=numpy.uint8)
+    arr = numpy.zeros([100,100], dtype=numpy.uint8)
     aii = ArrayInterfaceImage(arr)
     img = aii.texture
-    w.width = img.width
-    w.height = img.height
-    w.set_visible()
 
-    checks = image.create(32, 32, image.CheckerImagePattern())
-    background = image.TileableTexture.create_for_image(checks)
-
+    if background is None:
+        checks = image.create(32, 32, image.CheckerImagePattern())
+        background = image.TileableTexture.create_for_image(checks)
+        background_tiled = True
+    else:
+        if background.dtype != np.uint8:
+            'converting background to uint8'
+            background = np.array(background, dtype=np.uint8)*255
+        background_aii = ArrayInterfaceImage(background)
+        background = background_aii.texture
+        background_tiled = False
+        
+    if background_tiled:
+        w.width = img.width
+        w.height = img.height
+        w.set_visible()
+    else:
+        w.width = background.width
+        w.height = background.height
+        w.set_visible()
+    
+    
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     
     
-    for f in frames:
+    for i, f in enumerate(frames):
         arr = f
                         
         if arr is not None:
@@ -46,17 +81,23 @@ def play(frames, delay=0, magnify=1):
                 aii.view_new_array(arr)
             except: # size changed
                 print 'size changed!'
-                w.width = arr.shape[1]
-                w.height = arr.shape[0]
+                #w.width = arr.shape[1]
+                #w.height = arr.shape[0]
                 aii = ArrayInterfaceImage(arr)
                 
             img = aii.texture
-            
             w.dispatch_events()
             
-            background.blit_tiled(0, 0, 0, w.width, w.height)
-            img.blit(0, 0, 0)
-            
+            if background_tiled:
+                background.blit_tiled(0, 0, 0, 100, 100) #w.width, w.height)
+            else:
+                background.blit(0,0,0)
+                
+            if blit_position is None:
+                img.blit(0, 0, 0)
+            else:
+                img.blit(blit_position[i][1], blit_position[i][0], 0)
+                
             # add some overlays:
             if 0:
                 r = arr.shape[0]/2.
@@ -73,6 +114,8 @@ def play(frames, delay=0, magnify=1):
                     pass
                 except:
                     pass
+            
+            
             w.flip()
             
             time.sleep(delay) # slow down the playback
