@@ -15,6 +15,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 from mpl_toolkits.axes_grid1 import ImageGrid
 
 sys.path.append('/home/floris/src/analysis')
+import analysis_plot as ap
 
 import sa1_analysis as sa1 
 import colorline
@@ -103,7 +104,7 @@ def plot_show_backwards_flight(ax, x, y, linestyle=['-', '--'], color=['gray', '
 #                               Plotting                                 
 ###########################################################################
 
-def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitude=True, plot_slipangle=True, plot_angular_vel=False, plot_classification=False, show_dist_spine=True, show_time_spine=True, show_angle_spine='left', show_colorbar_spine=False, flip=False, label_lines=True, print_post_tags=False, label_font_size=9, lollipop=False, show_lollipop_spines=None, flycon=None, movie_id_text=True, time_limits=None):
+def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitude=True, plot_slipangle=True, plot_angular_vel=False, plot_classification=False, show_dist_spine=True, show_time_spine=True, show_angle_spine='left', show_colorbar_spine=False, flip=False, label_lines=True, print_post_tags=False, label_font_size=9, lollipop=False, show_lollipop_spines=None, flycon=None, movie_id_text=True, time_limits=None, plot_post_edges=True, linewidth=2, align_method='time'):
     print time_limits
     frames = sa1.get_frames_until_landing(movieinfo)
     try: fake = movieinfo.fake
@@ -120,7 +121,7 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
     ax.set_axis_bgcolor('white')
     if 1:
         colorbar_pad = 0
-        colorbar_size = "2%"
+        colorbar_size = "3%"
         divider = make_axes_locatable(ax)
         divider.set_anchor('E')
         cax = divider.append_axes("right", size=colorbar_size, pad=colorbar_pad)
@@ -137,7 +138,7 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
         loli_pad = 0.1 + extra_loli_pad
         loli_size = "25%"
         loliax = divider.append_axes("left", size=loli_size, pad=loli_pad)
-    if plot_dist:
+    if 1:
         distax = ax.twinx()
         divider = make_axes_locatable(distax)
         divider.set_anchor('E')
@@ -188,7 +189,19 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
     lower = movieinfo.scaled.angle_to_lower_edge*flip
     time_nearest_to_post = sa1.get_time_nearest_to_post(movieinfo)
     frame_nearest_to_post = sa1.get_frame_from_timestamp(movieinfo, time_nearest_to_post)
-    time = movieinfo.timestamps - time_nearest_to_post
+    
+    if align_method == 'time':
+        align_time = time_nearest_to_post
+        align_frame = frame_nearest_to_post
+        
+    if align_method == 'state change':
+        try:
+            align_frame = np.where(movieinfo.deviation_from_initial_state > 0.5)[0][0]
+        except:
+            align_frame = frames[-1]
+        align_time = movieinfo.timestamps[align_frame]
+        
+    time = movieinfo.timestamps - align_time
     
     # plot FILL BETWEEN
     ax.fill_between(time[frames], lower[frames], upper[frames], facecolor='black')
@@ -198,28 +211,26 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
         last_timestamp = movieinfo.timestamps[frames[-1]]
         legextensiontimerange = sa1.frame_to_timestamp(movieinfo, movieinfo.legextensionrange)
         legextensiontimerange[1] = np.min([legextensiontimerange[1], last_timestamp])
-        ax.plot(legextensiontimerange-time_nearest_to_post, np.zeros_like(legextensiontimerange), linewidth=2, color='red')
+        ax.plot(legextensiontimerange-align_time, np.zeros_like(legextensiontimerange), linewidth=linewidth, color='red')
 
     # plot SLIP ANGLE    
     if plot_slipangle:
-        plot_show_backwards_flight(ax, time[frames], slipangle[frames], linestyle=['-', '--'], color=['gray', 'gray'], thresh=[2/float(movieinfo.framerate), np.pi/2], linewidth=2)
+        plot_show_backwards_flight(ax, time[frames], slipangle[frames], linestyle=['-', '--'], color=['gray', 'gray'], thresh=[2/float(movieinfo.framerate), np.pi/2], linewidth=linewidth)
+        #ax.plot(time[frames], movieinfo.deviation_from_initial_state[frames], 'blue')
+        #ax.plot(movieinfo.trajec.epoch_time-align_time, movieinfo.trajec.integrated_expansion)
         
     # plot ANGULAR VELOCITY
     if plot_angular_vel:
         tmp = np.abs(movieinfo.flycoord.worldangle_vel[frames])
         tmp /= 20.
-        ax.plot(time[frames], tmp, color='blue')
+        #ax.plot(time[frames], tmp, color='blue')
     
     # plot COLOR DISTANCE SPEED
     if plot_dist:
         dist = movieinfo.scaled.dist_head_to_post[frames]-movieinfo.post_radius
         clim = (0,0.3)
         cl = colorline.Colorline(colormap='jet', norm=clim, hide_colorbar=True, ax0=distax)
-        cl.colorline(time[frames], dist, movieinfo.scaled.speed[frames], linewidth=2, norm=clim)
-        distax.set_frame_on(True)
-        distax.set_axis_bgcolor('none')
-        distylim = [0, .15]
-        distax.set_ylim(distylim) 
+        cl.colorline(time[frames], dist, movieinfo.scaled.speed[frames], linewidth=linewidth, norm=clim)
         if label_lines:
             norm = plt.Normalize(0,.3)
             cmap = plt.get_cmap('jet')
@@ -229,17 +240,24 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
                 color[-1] = 1.0
             distax.text(time[frames][-1]+label_x_offset, dist[frames][-1], 'dist to post,', fontdict={'fontsize': label_font_size, 'color': color}, withdash=False, horizontalalignment='left', verticalalignment='bottom')
             distax.text(time[frames][-1]+label_x_offset, dist[frames][-1], 'color: speed', fontdict={'fontsize': label_font_size, 'color': color}, withdash=False, horizontalalignment='left', verticalalignment='top')
-    if show_dist_spine and not fake:
+    
+    distax.set_frame_on(True)
+    distax.set_axis_bgcolor('none')
+    distylim = [0, .15]
+    distax.set_ylim(distylim)
+    
+    if show_dist_spine and not fake and (plot_dist or plot_altitude):
         distyticks = np.linspace(distylim[0], distylim[-1], 4, endpoint=True)
         adjust_spines(distax,['right'], color='green', spine_locations={'right': 5})
         dround = [np.int(np.round(distyticks[i]*(10**3))) for i in range(len(distyticks))]
         s = [str(dround[i]) for i in range(len(dround))]
         distax.set_yticks(distyticks)
-        distax.set_yticklabels(s, color='green')
-        distax.set_ylabel('dist scale, mm', color='green')
+        distax.set_yticklabels([])
+        distax.set_yticklabels(s, color='green', fontsize=label_font_size)
+        distax.set_ylabel('dist scale, mm', fontdict={'fontsize': label_font_size, 'color': 'green'})
     else:
         if show_time_spine:
-            adjust_spines(distax,['bottom'], spine_locations={'bottom': 20})
+            adjust_spines(distax,['none'])#adjust_spines(distax,['bottom'])#, spine_locations={'bottom': 5})
         else:
             adjust_spines(distax,['none'])
     # plot ALTITUDE
@@ -249,38 +267,39 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
         if movieinfo.behavior == 'landing':
             flydra_frame_of_landing = sa1.get_frame_from_timestamp(movieinfo, time_nearest_to_post, nt)
         else: flydra_frame_of_landing = -1
-        nt -= time_nearest_to_post
+        nt -= align_time
         
-        altax.plot(nt[:flydra_frame_of_landing], flydra_altitude[:flydra_frame_of_landing], color='green', linewidth=2)
+        altax.plot(nt[:flydra_frame_of_landing], flydra_altitude[:flydra_frame_of_landing], color='green', linewidth=linewidth)
         altax.set_frame_on(True)
         altax.set_axis_bgcolor('none')
         altax.set_ylim(-.15,0)
         if show_time_spine:
-            adjust_spines(altax,['bottom'], spine_locations={'bottom': 20})
+            adjust_spines(altax,['none'])#adjust_spines(altax,['bottom'])#, spine_locations={'bottom': 5})
         else:
             adjust_spines(altax,['none'])
         if label_lines:
-            altax.text(nt[flydra_frame_of_landing]+label_x_offset, flydra_altitude[flydra_frame_of_landing], 'altitude', fontdict={'fontsize': label_font_size, 'color': 'green'}, withdash=False, horizontalalignment='left', verticalalignment='center')
+            altax.text(nt[0]-label_x_offset, flydra_altitude[flydra_frame_of_landing], 'altitude', fontdict={'fontsize': label_font_size, 'color': 'green'}, withdash=False, horizontalalignment='right', verticalalignment='center')
     if fake:
         adjust_spines(altax,['none'])
         
     # plot GUIDE LINES
     ax.vlines(0, -np.pi, np.pi, color='black', linestyle='-')
     ax.hlines(0, -0.5, .5, color='red', linestyle='dotted')
-    ax.hlines(-np.pi/2., -0.5, 0.5, color='gray', linestyle='dotted', linewidth=2)
+    ax.hlines(-np.pi/2., -0.5, 0.5, color='gray', linestyle='dotted', linewidth=linewidth)
     ax.hlines(np.pi/2., -0.5, 0.5, color='gray', linestyle='dotted')
-    ax.hlines(np.pi, -0.5, 0.5, color='gray', linestyle='dotted', linewidth=2)
+    ax.hlines(np.pi, -0.5, 0.5, color='gray', linestyle='dotted', linewidth=linewidth)
     
     # plot POST EDGE GUIDE LINES
-    norm = plt.Normalize(0,.3)
-    cmap = plt.get_cmap('jet')
-    color = cmap( norm(movieinfo.scaled.speed[frame_nearest_to_post]) )
-    while np.sum(color[0:3]) > 1.5: # make darker for readability
-        color = [i/2. for i in color]
-        color[-1] = 1.0
-    ax.hlines(-np.pi/2., -0.03, 0.03, color=color, linestyle='-', zorder=100, linewidth=4)
-    # post top
-    ax.hlines(np.pi, -0.03, 0.03, color='green', linestyle='-', zorder=100, linewidth=4)
+    if plot_post_edges is True:
+        norm = plt.Normalize(0,.3)
+        cmap = plt.get_cmap('jet')
+        color = cmap( norm(movieinfo.scaled.speed[align_frame]) )
+        while np.sum(color[0:3]) > 1.5: # make darker for readability
+            color = [i/2. for i in color]
+            color[-1] = 1.0
+        ax.hlines(-np.pi/2., -0.03, 0.03, color=color, linestyle='-', zorder=100, linewidth=linewidth*2)
+        # post top
+        ax.hlines(np.pi, -0.03, 0.03, color='green', linestyle='-', zorder=100, linewidth=linewidth*2)
     
     if 'crash' in movieinfo.subbehavior or 'wingcrash' in movieinfo.subbehavior:
         el = patches.Ellipse( (0,0), .02, .2, facecolor='red', edgecolor='red', zorder=20)
@@ -291,9 +310,9 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
     ax.set_ylim(axylim)
     if time_limits is None:
         if movieinfo.behavior == 'landing':
-            axxlim = [-.5, .1]
+            axxlim = [-.5, .2]
         else:
-            axxlim = [-.5, .5]
+            axxlim = [-.3, .4]
     else:
         axxlim = time_limits
     ax.set_xlim(axxlim) 
@@ -308,7 +327,7 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
     if show_time_spine:
         spines.append('bottom')
         
-    spine_locations={'bottom': 20}
+    spine_locations={'bottom': 10}
     if 'right' in spines:
         spine_locations.setdefault('right', 5)
     adjust_spines(ax,spines, spine_locations=spine_locations)
@@ -321,18 +340,19 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
             stick = str(tick)
             stick = stick.lstrip('-0')
             tickstring += stick[0:2]
+            if tick > -0.00001 and tick < 0.00001: tickstring = '0'
             xtickstrings[i] = tickstring
         
         ax.set_xticks(xticks)
         print xticks
-        ax.set_xticklabels(xtickstrings)
+        ax.set_xticklabels(xtickstrings, fontsize=label_font_size)
         print xtickstrings
-        ax.set_xlabel('time, sec')
+        ax.set_xlabel('time, sec', fontdict={'fontsize': label_font_size})
     if show_angle_spine is not False:
-        ax.set_ylabel('angle on retina, deg')
+        ax.set_ylabel('angle, deg', fontdict={'fontsize': label_font_size})
         yticks = [-np.pi/2., 0, np.pi/2, np.pi]
         ax.set_yticks(yticks)
-        ax.set_yticklabels([-90, 0, 90, 180])
+        ax.set_yticklabels([-90, 0, 90, 180], fontsize=label_font_size)
         if show_angle_spine == 'right':
             ax.yaxis.set_label_position('right')
         
@@ -350,7 +370,10 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
     if show_colorbar_spine: # COLORBAR
         cticks = [0, .1, .2, .3]
         cb = matplotlib.colorbar.ColorbarBase(cax, cmap=plt.get_cmap('jet'), norm=plt.Normalize(clim[0], clim[1]), orientation='vertical', boundaries=None, ticks=cticks, drawedges=False)
-        cax.set_ylabel('speed, m/s')
+        for t in cb.ax.get_yticklabels():
+            t.set_fontsize(label_font_size)
+
+        cax.set_ylabel('speed, m/s', fontsize=label_font_size)
     if show_colorbar_spine:
         cax.set_visible(True)
     else:
@@ -360,7 +383,7 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
     if print_post_tags:
             norm = plt.Normalize(0,.3)
             cmap = plt.get_cmap('jet')
-            color = cmap( norm(movieinfo.scaled.speed[frame_nearest_to_post]) )
+            color = cmap( norm(movieinfo.scaled.speed[align_frame]) )
             while np.sum(color[0:3]) > 1.5: # make darker for readability
                 color = [i/2. for i in color]
                 color[-1] = 1.0
@@ -372,7 +395,7 @@ def plot_expansion(movieinfo, ax=None, figure=None, plot_dist=True, plot_altitud
         flycon = plt.imread(flycon)
         ax.imshow(flycon, extent=[-.5,-.35,-.6,.6], aspect='auto', zorder=200)
     if movie_id_text:
-        txt = movieinfo.id + ': ' + movieinfo.posttype
+        txt = movieinfo.id + ': ' + movieinfo.posttype# + str(movieinfo.change_in_behavior)
         ax.text(-.5, -np.pi/2, txt, fontdict={'fontsize': 8}, withdash=False)
         
     # package axes and return
@@ -446,14 +469,15 @@ def plot_expansion_for_dataset(movie_dataset, figure=None, behavior=None, postty
     return fig
 
 ###
-def plot_trajectory(movieinfo, figure=None):
+def plot_trajectory(movieinfo, figure=None, show_post=True, show_flydra=True):
     fig = plt.figure(figure)
     ax0 = fig.add_axes([.1,.1,.8,.8])
     post_pos = movieinfo.post_pos
     frames = sa1.get_frames_until_landing(movieinfo)
     
     ax0.plot(movieinfo.scaled.positions[frames,0], movieinfo.scaled.positions[frames,1])
-    ax0.plot(movieinfo.trajec.positions[:,0], movieinfo.trajec.positions[:,1], '.', markersize=2)
+    if show_flydra:
+        ax0.plot(movieinfo.trajec.positions[:,0], movieinfo.trajec.positions[:,1], '.', markersize=2)
     
     ax0.set_xlim([-.1, .1])
     ax0.set_ylim([-.1, .1])
@@ -480,8 +504,9 @@ def plot_trajectory(movieinfo, figure=None):
         
         i += interval        
         
-    circle = patches.Circle( (0,0), radius=movieinfo.post_radius, facecolor='none', edgecolor='green')
-    ax0.add_artist(circle)
+    if show_post:
+        circle = patches.Circle( (0,0), radius=movieinfo.post_radius, facecolor='none', edgecolor='green')
+        ax0.add_artist(circle)
     
     title = movieinfo.id + ' ' + movieinfo.behavior + ' ' + movieinfo.subbehavior[0]
     ax0.set_title(title)
@@ -540,7 +565,16 @@ def plot_lollipops(movieinfo, ax=None, figure=None, show_spines=['left', 'bottom
         arrow = Arrow(head_pos[0], head_pos[1], -1*dx, -1*dy, width=.0001, color='red', linewidth=1)
         ax.add_artist(arrow)
         
-        head = patches.Circle( head_pos, radius=0.001, facecolor='black', edgecolor='none')
+        try:
+            err = movieinfo.deviation_from_initial_state[i]
+        except:
+            err = 0
+        if err > 0.5:
+            facecolor = 'blue'
+        else:
+            facecolor = 'black'
+        
+        head = patches.Circle( head_pos, radius=0.001, facecolor=facecolor, edgecolor='none')
         ax.add_artist(head)
         
         i += interval    
@@ -601,26 +635,30 @@ def plot_lollipops(movieinfo, ax=None, figure=None, show_spines=['left', 'bottom
     return ax
     
 ###
-def plot_lollipop_and_expansion(movieinfo, ax, show_lollipop_spines=None, show_dist_spine=False, show_time_spine=True, show_angle_spine='left', show_colorbar_spine=True, print_post_tags=True, label_lines=True, flycon=None):
+def plot_lollipop_and_expansion(movieinfo, ax, figure=None, plot_dist=True, plot_altitude=True, plot_slipangle=True, plot_angular_vel=False, plot_classification=False, show_dist_spine=True, show_time_spine=True, show_angle_spine='left', show_colorbar_spine=False, flip=False, label_lines=True, print_post_tags=False, label_font_size=9, lollipop=True, show_lollipop_spines=None, flycon=None, movie_id_text=True, time_limits=None, plot_post_edges=True):
     try:
         tmp = movieinfo.scaled
     except:
         sa1.process_movieinfo(movieinfo)
-    expaxes = plot_expansion(movieinfo, ax=ax, plot_dist=True, plot_altitude=True, plot_slipangle=True, show_dist_spine=show_dist_spine, show_time_spine=show_time_spine, show_angle_spine=show_angle_spine, show_colorbar_spine=show_colorbar_spine, flip=True, label_lines=label_lines, print_post_tags=print_post_tags, label_font_size=9, lollipop=True, show_lollipop_spines=show_lollipop_spines, flycon=flycon, time_limits=None)
+    expaxes = plot_expansion(movieinfo, ax=ax, figure=figure, plot_dist=plot_dist, plot_altitude=plot_altitude, plot_slipangle=plot_slipangle, plot_angular_vel=plot_angular_vel, plot_classification=plot_classification, show_dist_spine=show_dist_spine, show_time_spine=show_time_spine, show_angle_spine=show_angle_spine, show_colorbar_spine=show_colorbar_spine, flip=flip, label_lines=label_lines, print_post_tags=print_post_tags, label_font_size=label_font_size, lollipop=lollipop, show_lollipop_spines=show_lollipop_spines, flycon=flycon, movie_id_text=movie_id_text, time_limits=time_limits, plot_post_edges=plot_post_edges)
     return expaxes
     
-def plot_lollipop_and_expansion_new_figure(movieinfo):
+#sap.plot_lollipop_and_expansion_new_figure(movieinfo, plot_dist=True, show_dist_spine=False, plot_altitude=True, show_colorbar_spine=True, plot_slipangle=True, label_lines=False, movie_id_text=False, plot_post_edges=True, flip=True, lollipop=True, label_font_size=14)
+def plot_lollipop_and_expansion_new_figure(movieinfo, figure=None, plot_dist=True, plot_altitude=True, plot_slipangle=True, plot_angular_vel=False, plot_classification=False, show_dist_spine=True, show_time_spine=True, show_angle_spine='left', show_colorbar_spine=False, flip=False, label_lines=True, print_post_tags=False, label_font_size=16, lollipop=False, show_lollipop_spines=None, flycon=None, movie_id_text=True, time_limits=None, plot_post_edges=True, scale=3):
     fig = plt.figure()
     fig.set_facecolor('white')
-    ax1 = fig.add_subplot(111)
+    ax1 = fig.add_axes([.1, .25, .75, .6])
     #ax1 = fig.add_subplot(121)
     #ax2 = fig.add_subplot(122)
     
-    axes = plot_lollipop_and_expansion(movieinfo, ax1)    
-    return axes
+    axes = plot_lollipop_and_expansion(movieinfo, ax1, figure=figure, plot_dist=plot_dist, plot_altitude=plot_altitude, plot_slipangle=plot_slipangle, plot_angular_vel=plot_angular_vel, plot_classification=plot_classification, show_dist_spine=show_dist_spine, show_time_spine=show_time_spine, show_angle_spine=show_angle_spine, show_colorbar_spine=show_colorbar_spine, flip=flip, label_lines=label_lines, print_post_tags=print_post_tags, label_font_size=label_font_size, lollipop=lollipop, show_lollipop_spines=show_lollipop_spines, flycon=flycon, movie_id_text=movie_id_text, time_limits=time_limits, plot_post_edges=plot_post_edges)    
+    
+    fig.set_size_inches(2*scale,1*scale)
+    fig.savefig('lol_exp_fig', dpi=200)
+    return fig
     
 ###
-def plot_lollipop_and_expansion_for_dataset(movie_dataset, figure=None, behavior=None, posttype=None, firstmovie=0, nmovies=None, columns=1, crash=False, save_as_pdf=False, keys=None):
+def plot_lollipop_and_expansion_for_dataset(movie_dataset, figure=None, behavior=None, posttype=None, firstmovie=0, nmovies=None, columns=1, crash=False, save_as_pdf=False, keys=None, label_font_size=None):
     if save_as_pdf is not False:
         plt.close('all')
     
@@ -707,9 +745,9 @@ def plot_lollipop_and_expansion_for_dataset(movie_dataset, figure=None, behavior
             
         
         if show_spines:
-            axes = plot_lollipop_and_expansion(movie, ax, show_lollipop_spines=None, show_dist_spine=show_dist_spine, show_time_spine=True, show_angle_spine=show_angle_spine, show_colorbar_spine=True, print_post_tags=True, label_lines=label_lines, flycon=None)
+            axes = plot_lollipop_and_expansion(movie, ax, show_lollipop_spines=None, show_dist_spine=show_dist_spine, show_time_spine=True, show_angle_spine=show_angle_spine, show_colorbar_spine=True, print_post_tags=True, label_lines=label_lines, flycon=None, label_font_size=label_font_size)
         else:
-            axes = plot_lollipop_and_expansion(movie, ax, show_lollipop_spines=None, show_dist_spine=show_dist_spine, show_time_spine=False, show_angle_spine=show_angle_spine, show_colorbar_spine=False, print_post_tags=False, label_lines=label_lines)
+            axes = plot_lollipop_and_expansion(movie, ax, show_lollipop_spines=None, show_dist_spine=show_dist_spine, show_time_spine=False, show_angle_spine=show_angle_spine, show_colorbar_spine=False, print_post_tags=False, label_lines=label_lines, label_font_size=label_font_size)
             
     if behavior is None or type(behavior) is list:
         behavior = 'mixed behaviors'
@@ -810,6 +848,27 @@ def pdf_lollipop_and_expansion(movie_dataset, filename='sa1_ethogragraphical_plo
     print 'closed'
     
 ###
+def pdf_random(movie_dataset, filename='random_plots.pdf', scale=10):
+    
+    keys = movie_dataset.get_movie_keys()
+    nmovies_per_page = 32
+    
+    plt.close('all')
+    pp =  pdf.PdfPages(filename)
+    
+    f = 0
+    
+    fig = plot_lollipop_and_expansion_for_dataset(movie_dataset, figure=f, nmovies=nmovies_per_page, columns=4, keys=keys)
+    fig.set_size_inches(2*scale,1*scale)
+    fig.set_dpi(72)
+    
+    pp.savefig(f)
+    plt.close(f)
+    pp.close()
+    
+    
+    
+###
 def pdf_lollipop_and_expansion_for_landing_subbehaviors(movie_dataset, filename='sa1_ethogragraphical_plots_landing_subbehaviors.pdf', scale=10):
     
     nmovies_per_page = 8
@@ -832,6 +891,10 @@ def pdf_lollipop_and_expansion_for_landing_subbehaviors(movie_dataset, filename=
     keys_to_plot = [fixation_keys, centered_keys, hover_keys, etf_keys]
     keys_dict = ['fixation', 'centered', 'hover', 'end of tunnel fixation and turn']
     
+    print '*'*80
+    print keys_to_plot
+    print '*'*80
+    
     for k, keys in enumerate(keys_to_plot):
         movies_plotted = 0
         
@@ -841,7 +904,7 @@ def pdf_lollipop_and_expansion_for_landing_subbehaviors(movie_dataset, filename=
                 firstmovie = movies_plotted
             else:
                 firstmovie = 0
-            print '*'*80
+            
             fig = plot_lollipop_and_expansion_for_dataset(movie_dataset, figure=f, nmovies=nmovies_per_page, columns=2, firstmovie=firstmovie, keys=keys)
             fig.set_size_inches(2*scale,1*scale)
             fig.set_dpi(72)
@@ -1003,6 +1066,70 @@ def pdf_lollipop_and_expansion_keys(movie_dataset, filename='sa1_ethogragraphica
     pp.close()
     print 'closed'
     
+    
+def fig_of_classifications_for_candidacy(movie_dataset):
+
+#sap.plot_lollipop_and_expansion_new_figure(movieinfo, plot_dist=True, show_dist_spine=False, plot_altitude=True, show_colorbar_spine=True, plot_slipangle=True, label_lines=False, movie_id_text=False, plot_post_edges=True, flip=True, lollipop=True, label_font_size=14)
+
+
+    tuples = [(20101030, 19), (20101110,26), (20101111,22), (20101030,35), (20101111,47), (20101101,8), (20101110,43), (20101111,05)]
+    keys =  sa1.get_trajectory_list_from_short_tuples(tuples)
+
+
+    fig = plt.figure(None)
+    fig.set_facecolor('white')
+    f = 0
+    
+    for i in range(len(keys)):
+        f += 1
+        
+        ax = fig.add_subplot(4,2,f)
+        
+        show_dist_spine=False
+        show_time_spine=False
+        show_colorbar_spine=False
+        print_post_tags=False
+        label_lines=False
+        show_angle_spine=False
+        
+        if f == 8:
+            show_time_spine=True
+            show_colorbar_spine=True
+        if f == 6:
+            show_angle_spine='right'
+        if f == 4:
+            show_dist_spine=True
+        if f == 1:
+            label_lines=True
+        if f == 8:
+            print_post_tags=True
+        
+        movieinfo = movie_dataset.movies[keys[i]] 
+        
+        label_lines=False
+        print_post_tags=False
+        
+        plot_lollipop_and_expansion(movieinfo, ax, plot_dist=True, plot_altitude=True, plot_slipangle=True, plot_angular_vel=False, plot_classification=False, show_dist_spine=show_dist_spine, show_time_spine=show_time_spine, show_angle_spine=show_angle_spine, show_colorbar_spine=show_colorbar_spine, flip=True, label_lines=label_lines, print_post_tags=print_post_tags, label_font_size=9, lollipop=True, show_lollipop_spines=None, flycon=None, movie_id_text=False, time_limits=None, plot_post_edges=True)
+    
+        if f == 1:
+            ax.text(-0.65, 0.5, 'fixation', fontdict={'fontsize': 9, 'color': 'black'}, withdash=False, horizontalalignment='right', verticalalignment='center', rotation='vertical')
+        if f == 3:
+            ax.text(-0.65, 0.5, 'centered', fontdict={'fontsize': 9, 'color': 'black'}, withdash=False, horizontalalignment='right', verticalalignment='center', rotation='vertical')
+        if f == 5:
+            ax.text(-0.65, 0.5, 'hovering', fontdict={'fontsize': 9, 'color': 'black'}, withdash=False, horizontalalignment='right', verticalalignment='center', rotation='vertical')
+        if f == 7:
+            ax.text(-0.65, 0.5, 'fixation switch', fontdict={'fontsize': 9, 'color': 'black'}, withdash=False, horizontalalignment='right', verticalalignment='center', rotation='vertical')
+            
+        if f == 1:
+            ax.text(0, 4, 'flyby trajectories', fontdict={'fontsize': 9, 'color': 'black'}, withdash=False, horizontalalignment='center', verticalalignment='center', rotation='horizontal')
+        if f == 2:
+            ax.text(0, 4, 'landing trajectories', fontdict={'fontsize': 9, 'color': 'black'}, withdash=False, horizontalalignment='center', verticalalignment='center', rotation='horizontal')  
+            
+    fig.set_size_inches(6.5,5)
+    return fig
+        
+        
+        
 ###############################################################################
 # Rarely Used (one time use?) Functions 
 ###############################################################################
@@ -1031,7 +1158,7 @@ def plot_post_radii(movie_dataset):
     plt.plot(radii[:])
     
 ###
-def plot_slipangle_during_fixation_histogram(movie_dataset, fixation_threshold_degrees=5, fixation_duration_threshold=0.07):
+def plot_slipangle_during_fixation_histogram(movie_dataset, fixation_threshold_degrees=7, fixation_duration_threshold=0.05):
     fig = plt.figure()
     fig.set_facecolor('white')
     ax = fig.add_subplot(111)
@@ -1044,7 +1171,7 @@ def plot_slipangle_during_fixation_histogram(movie_dataset, fixation_threshold_d
         new_data = sa1.get_slipangle_during_fixation(movieinfo, fixation_threshold_degrees, fixation_duration_threshold)
         slipangle_during_fixation = np.hstack( (slipangle_during_fixation, new_data) )
     
-    ax.hist(slipangle_during_fixation*180./np.pi, bins=50)
+    ax.hist(slipangle_during_fixation*180./np.pi, bins=np.linspace(-90,90,100,endpoint=True))
     spines = ['left', 'bottom']
     adjust_spines(ax,spines, color='black')
     
@@ -1072,6 +1199,7 @@ def plot_speed_during_fixation_histogram(movie_dataset, fixation_threshold_degre
         movieinfo = movie_dataset.movies[key]
         #new_data = sa1.get_speed_during_fixation(movieinfo, fixation_threshold_degrees, fixation_duration_threshold)
         #speed_during_fixation = np.hstack( (speed_during_fixation, new_data) )
+        sa1.calc_flydra_fixation_for_movieinfo(movieinfo)
         new_data = sa1.get_flydra_speed_during_fixation(movieinfo.trajec, fixation_threshold_degrees, fixation_duration_threshold)
         speed_during_fixation = np.hstack( (speed_during_fixation, new_data) )
         if len(new_data) > 0:
@@ -1083,10 +1211,10 @@ def plot_speed_during_fixation_histogram(movie_dataset, fixation_threshold_degre
     spines = ['left', 'bottom']
     adjust_spines(ax,spines, color='black')
     
-    ax.set_xlabel('speed during fixation, degrees')
-    ax.set_ylabel('number of data points')
+    ax.set_xlabel('speed during fixation, m/s', fontsize=14)
+    ax.set_ylabel('number of data points', fontsize=14)
     titlestring = 'speed during fixation, min of ' + str(fixation_duration_threshold) + ' sec, and < ' + str(fixation_threshold_degrees) + ' deg error'
-    ax.set_title(titlestring)
+    #ax.set_title(titlestring, fontsize=14)
     
     #plt.show()
     
@@ -1117,10 +1245,10 @@ def plot_speed_not_fixation_histogram(movie_dataset, fixation_threshold_degrees=
     spines = ['left', 'bottom']
     adjust_spines(ax,spines, color='black')
     
-    ax.set_xlabel('speed during fixation, degrees')
-    ax.set_ylabel('number of data points')
+    ax.set_xlabel('speed when not fixating, m/s', fontsize=14)
+    ax.set_ylabel('number of data points', fontsize=14)
     titlestring = 'speed when NOT fixating, min of ' + str(fixation_duration_threshold) + ' sec, and < ' + str(fixation_threshold_degrees) + ' deg error'
-    ax.set_title(titlestring)
+    #ax.set_title(titlestring)
     
     #plt.show()
     
@@ -1284,17 +1412,479 @@ def plot_speed_vs_pitch_no_transients(movie_dataset):
 
 
 
+###############################################################################
+# Averaging Stuff
+###############################################################################
 
 
 
 
+def fill_between_average_test(movie_dataset):
 
+    #fixation_keys = sa1.get_keys(movie_dataset, 'flyby', 'fixation')
+    fixation_keys = sa1.get_keys(movie_dataset, 'landing', 'fixation')
+    centered_keys = sa1.get_keys(movie_dataset, 'landing', 'centered', crash=True)
+    '''
+    fixation_keys = sa1.get_keys(movie_dataset, 'landing', 'fixation', crash=True)
+    
+    hover_keys_raw = sa1.get_keys(movie_dataset, 'landing', 'hover', crash=True)
+    hover_keys = []
+    for key in hover_keys_raw:
+        if key not in centered_keys and key not in fixation_keys:
+            hover_keys.append(key)
+    etf_keys = sa1.get_keys(movie_dataset, 'landing', 'etf', crash=True)
+    '''
+    etf_keys = sa1.get_keys(movie_dataset, 'landing', 'etf', crash=False)
+    
+    align_method = 'state change'
+    flip = 1
+    
+    fig = plt.figure()
+    ax = fig.add_axes([.1,.1,.8,.8])
+    
+    for key in centered_keys:
+        movieinfo = movie_dataset.movies[key]
+        sa1.calc_flydra_post_angles(movieinfo)
+        frames = sa1.get_frames_until_landing(movieinfo)
+        # simple variable names        
+        
+            
+        if align_method == 'state change':
+            try:
+                #align_frame = np.where(movieinfo.deviation_from_initial_state > 0.5)[0][0]
+                align_frame = np.where(movieinfo.trajec.dist_to_stim_r < 0.025)[0][0]
+            except:
+                align_frame = frames[-1]
+            align_time = movieinfo.timestamps[align_frame]
+            
+        time = movieinfo.trajec.epoch_time - align_time
+        align_frame_flydra = sa1.get_frame_from_timestamp_flydra(movieinfo, align_time)
+        first_frame_flydra = sa1.get_frame_from_timestamp_flydra(movieinfo, align_time-0.2)
+        # decide whether to flip or not
+        avg_upper = np.mean(movieinfo.trajec.angle_to_upper_edge[first_frame_flydra:align_frame_flydra])
+        avg_lower = np.mean(movieinfo.trajec.angle_to_lower_edge[first_frame_flydra:align_frame_flydra])
+        flip = np.sign(np.mean([avg_upper, avg_lower]))
+        
+        upper = movieinfo.trajec.angle_to_upper_edge*flip
+        lower = movieinfo.trajec.angle_to_lower_edge*flip
+        
+        # plot FILL BETWEEN
+        ax.fill_between(time, lower, upper, facecolor='black', alpha=0.3)
+        ax.plot(time, movieinfo.trajec.signed_angle_to_post*flip, color='black')
+        
+        small_subtension = np.where(movieinfo.trajec.angle_subtended_by_post < np.pi*5/180.)[0].tolist()
+        large_subtension = np.where(movieinfo.trajec.angle_subtended_by_post >= np.pi*5/180.)[0].tolist()
+        
+        #ax.plot(time[small_subtension], movieinfo.trajec.dist_to_stim_r[small_subtension]*10, color='blue')
+        #ax.plot(time[large_subtension], movieinfo.trajec.dist_to_stim_r[large_subtension]*10, color='red')
+        ax.plot(time, movieinfo.trajec.dist_to_stim_r*30, color='blue', alpha=0.5)
+        
+        if movieinfo.legextensionrange is not None:
+            ax.plot( [movieinfo.timestamps[movieinfo.legextensionrange[0]]-align_time, movieinfo.timestamps[movieinfo.legextensionrange[1]]-align_time], [0,0], color='red', alpha=0.3, linewidth=5)
+            
+        ax.plot(time, movieinfo.trajec.speed*(-10), color='green', alpha=0.5)
 
+        ax.set_xlim([-0.4, 0.2])
+        ax.set_ylim([-5,5])
+        
+        
+        
+        
+###
+def time_to_impact_vs_change_in_state(movie_dataset):
 
+    landing_keys = movie_dataset.get_movie_keys(behavior = 'landing')
+    flyby_keys = movie_dataset.get_movie_keys(behavior = 'flyby')
+    
+    plt.figure()
+    for key in landing_keys:
+        movieinfo = movie_dataset.movies[key]
+        frames = sa1.get_frames_until_landing(movieinfo)
+        try:
+            align_frame = np.where(movieinfo.deviation_from_initial_state > 0.5)[0][0] # highspeed frame
+        except:
+            align_frame = frames[-1]
+        align_time = movieinfo.timestamps[align_frame]
+        align_frame_flydra = sa1.get_frame_from_timestamp_flydra(movieinfo, align_time)
+        
+        
+        print align_frame
+        vel_at_change = movieinfo.trajec.speed[align_frame_flydra-10]
+        dist_at_change = movieinfo.trajec.dist_to_stim_r[align_frame_flydra-10]
+        movieinfo.change_in_behavior = dist_at_change/vel_at_change
+        
+        
+        
+    
+        
+        '''
+        x = mu + sigma*P.randn(1000,3)
 
+n, bins, patches = P.hist(x, 10, normed=1, histtype='bar',
+                            color=['crimson', 'burlywood', 'chartreuse'],
+                            label=['Crimson', 'Burlywood', 'Chartreuse'])
+                            
+                            
+        '''
+        
+        
+    #plt.hist(time_to_impact, bins=40, range=(0,.5))
+    #plt.title('landing')
+        
+        
+    plt.figure()
+    time_to_impact = []
+    for key in flyby_keys:
+        movieinfo = movie_dataset.movies[key]
+        frames = sa1.get_frames_until_landing(movieinfo)
+        try:
+            align_frame = np.where(movieinfo.deviation_from_initial_state > 0.5)[0][0] # flydra time
+        except:
+            align_frame = frames[-1]
+        align_time = movieinfo.timestamps[align_frame]
+        align_frame_flydra = sa1.get_frame_from_timestamp_flydra(movieinfo, align_time)
+        
+        print align_frame
+        vel_at_change = movieinfo.trajec.speed[align_frame_flydra-10]
+        dist_at_change = movieinfo.trajec.dist_to_stim_r[align_frame_flydra-10]
+        time_to_impact.append( dist_at_change/vel_at_change )
+        movieinfo.change_in_behavior = dist_at_change/vel_at_change
+        
+    #plt.hist(time_to_impact, bins=40, range=(0,.5))
+    #plt.title('flyby')
+        
+        
+        
+###
+def plot_testing_behavior_change(movieinfo):
+    
+    #plt.plot(movieinfo.trajec.speed)
+    
+    ## kalman
+    data = movieinfo.trajec.speed.reshape([len(movieinfo.trajec.speed),1])
+    ss = 2 # state size
+    os = 1 # observation size
+    F = np.array([   [1,1], # process update
+                     [0,1]],
+                    dtype=np.float)
+    H = np.array([   [0,1]], # observation matrix
+                    dtype=np.float)
+    Q = 1*np.eye(ss) # process noise
+    R = 25*np.eye(os) # observation noise
+    init_vel = data[0]
+    initx = np.array([0, init_vel], dtype=np.float)
+    initv = 0*np.eye(ss)
+    xsmooth,Vsmooth = sa1.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
+    ## 
+    
+    #plt.plot(xsmooth[:,1])
+    
+    movieinfo.trajec.smooth_accel = sa1.diffa(xsmooth[:,1])
+    
+    #plt.plot(movieinfo.trajec.smooth_accel*20.)
+    #plt.plot(movieinfo.trajec.dist_to_stim_r)
+    
+    
+    movieinfo.trajec.world_velocity_angle = sa1.remove_angular_rollover(np.arctan2(movieinfo.trajec.velocities[:,1], movieinfo.trajec.velocities[:,0]), 3)
+    ## kalman
+    data = movieinfo.trajec.world_velocity_angle.reshape([len(movieinfo.trajec.world_velocity_angle),1])
+    ss = 2 # state size
+    os = 1 # observation size
+    F = np.array([   [1,1], # process update
+                     [0,1]],
+                    dtype=np.float)
+    H = np.array([   [1,0]], # observation matrix
+                    dtype=np.float)
+    Q = 1*np.eye(ss) # process noise
+    R = 5*np.eye(os) # observation noise
+    init_vel = data[0]
+    initx = np.array([0, init_vel], dtype=np.float)
+    initv = 0*np.eye(ss)
+    xsmooth,Vsmooth = sa1.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
+    ## 
+    plt.plot(xsmooth[:,1])
+    plt.plot(movieinfo.trajec.world_velocity_angle)
+    movieinfo.trajec.world_velocity_angle_smooth = xsmooth[:,0]
+    movieinfo.trajec.world_velocity_angle_diff_smooth = xsmooth[:,1]
+    plt.plot(sa1.diffa(xsmooth[:,1]))
+    
+    #plt.plot(movieinfo.trajec.orientation)
+    
+    plt.show()
+    
+    
+    
+    #plt.plot(movieinfo.trajec.accel_1d)
+        
+        
+###        
+def plot_flydra_trajecs(movie_dataset):
+    landing_keys = movie_dataset.get_movie_keys(behavior='landing')
+    fixation_keys = sa1.get_keys(movie_dataset, 'landing', 'fixation')
+    centered_keys = sa1.get_keys(movie_dataset, 'landing', 'centered')
+    hover_keys_raw = sa1.get_keys(movie_dataset, 'landing', 'hover')
+    hover_keys = []
+    for key in hover_keys_raw:
+        if key not in centered_keys and key not in fixation_keys:
+            hover_keys.append(key)
+    etf_keys = sa1.get_keys(movie_dataset, 'landing', 'etf')    
+    
+    hover_trajecs = []
+    for key in hover_keys:
+        hover_trajecs.append(movie_dataset.movies[key].trajec)
+    landing_trajecs = []
+    for key in landing_keys:
+        landing_trajecs.append(movie_dataset.movies[key].trajec)
+    etf_trajecs = []
+    for key in etf_keys:
+        etf_trajecs.append(movie_dataset.movies[key].trajec)
+    fixation_trajecs = []
+    for key in fixation_keys:
+        fixation_trajecs.append(movie_dataset.movies[key].trajec)
+    centered_trajecs = []
+    for key in centered_keys:
+        centered_trajecs.append(movie_dataset.movies[key].trajec)
+        
+    crash_course_keys = get_crash_course_keys(movie_dataset)
+    crash_course_trajecs = []
+    for key in crash_course_keys:
+        crash_course_trajecs.append(movie_dataset.movies[key].trajec)
+        
+    change_course_keys = get_change_course_keys(movie_dataset)
+    change_course_trajecs = []
+    for key in change_course_keys:
+        change_course_trajecs.append(movie_dataset.movies[key].trajec)
+        
+    slow_course_keys = get_slow_course_keys(movie_dataset)
+    slow_course_trajecs = []
+    for key in slow_course_keys:
+        slow_course_trajecs.append(movie_dataset.movies[key].trajec)
+        
+    ap.xy_trajectories(trajectory_objects = change_course_trajecs)
+    
+###
+def get_crash_course_keys(movie_dataset, threshold = 0.2):
+    landing_keys = movie_dataset.get_movie_keys(behavior='landing')
+    crash_course_keys = []
+    for key in landing_keys:
+        movieinfo = movie_dataset.movies[key]
+        if len(movieinfo.trajec.speed) >= 70:
+            print movieinfo.trajec.behavior
+            f = sa1.calc_frame_of_landing(movieinfo.trajec)
+            print movieinfo.id, f
+            avg_speed_before_landing = np.mean(movieinfo.trajec.speed[movieinfo.trajec.frame_of_landing-20:movieinfo.trajec.frame_of_landing])
+            if avg_speed_before_landing > threshold:
+                crash_course_keys.append(key)
+    return crash_course_keys
+###
+def get_change_course_keys(movie_dataset, threshold = 10):
+    landing_keys = movie_dataset.get_movie_keys(behavior='landing')
+    change_course_keys = []
+    for key in landing_keys:
+        movieinfo = movie_dataset.movies[key]
+        if len(movieinfo.trajec.speed) >= 70:
+            f = sa1.calc_frame_of_landing(movieinfo.trajec)
+            calc_change_in_course_prior_to_landing(movieinfo)
+            if movieinfo.trajec.change_in_course > threshold:
+                if movieinfo.id == '20101111_C001H001S0005':
+                    print 'change in course ok'
+                nframestocheck = np.min([len(movieinfo.trajec.speed[0:movieinfo.trajec.frame_of_landing])-1, 100])
+                if f != 0 and f != -1 and f > nframestocheck:
+                    max_speed_before_landing = np.max(movieinfo.trajec.speed[movieinfo.trajec.frame_of_landing-nframestocheck:movieinfo.trajec.frame_of_landing])
+                    if max_speed_before_landing > 0.14:
+                        change_course_keys.append(key)
+    return change_course_keys
+###
+def get_slow_course_keys(movie_dataset, threshold = 0.14):
+    landing_keys = movie_dataset.get_movie_keys(behavior='landing')
+    slow_course_keys = []
+    for key in landing_keys:
+        movieinfo = movie_dataset.movies[key]
+        if len(movieinfo.trajec.speed) >= 70:
+            f = sa1.calc_frame_of_landing(movieinfo.trajec)
+            if f != 0 and f != -1 and f > 100:
+                max_speed_before_landing = np.max(movieinfo.trajec.speed[movieinfo.trajec.frame_of_landing-100:movieinfo.trajec.frame_of_landing])
+                if max_speed_before_landing < threshold:
+                    slow_course_keys.append(key)
+    return slow_course_keys
+###
+def get_classified_keys(movie_dataset):
+    
+    crash_course_keys = get_crash_course_keys(movie_dataset)
+    change_course_keys = get_change_course_keys(movie_dataset)
+    slow_course_keys = get_slow_course_keys(movie_dataset)
+    
+    landing_keys = movie_dataset.get_movie_keys(behavior='landing')
+    classified_keys = crash_course_keys + change_course_keys + slow_course_keys
+    unclassified_keys = []
+    for key in landing_keys:
+        if key not in classified_keys:
+            movieinfo = movie_dataset.movies[key]
+            if len(movieinfo.trajec.speed) >= 70:
+                unclassified_keys.append(key)
+                
+    return {'crash': crash_course_keys, 'change': change_course_keys, 'slow': slow_course_keys, 'unclassified': unclassified_keys}
+###
+def get_trajecs_from_keys(movie_dataset, keys):
+    trajecs = []
+    for key in keys:
+        trajecs.append(movie_dataset.movies[key].trajec)
+    return trajecs
+###
+def get_movies_from_keys(movie_dataset, keys):
+    movies = []
+    for key in keys:
+        movies.append(movie_dataset.movies[key])
+    return movies
+###
+def plot_flydra_trajecs_from_keys(movie_dataset, keys, print_obj_ids=False):
+    trajecs = get_trajecs_from_keys(movie_dataset, keys)
+    cl = ap.xy_trajectories(trajectory_objects = trajecs, print_obj_ids=print_obj_ids)
+    return cl
+###
+def pdf_flydra_trajecs_of_classifications(movie_dataset, filename='classified_flydra_trajectories'):
+    classified_keys = get_classified_keys(movie_dataset)
+    
+    page = -1
+    plt.close('all')
+    pp =  pdf.PdfPages(filename)
+    
+    for k, item in classified_keys.items():
+        cl = plot_flydra_trajecs_from_keys(movie_dataset, item)
+        title = str(k) + ' course'
+        cl.ax0.set_title(title)
+        cl.ax0.figure.set_size_inches(2*10,1*10)
+        cl.ax0.figure.set_dpi(72)
+        pp.savefig()
+        plt.close('all')
+    
+    pp.close()
+    print 'closed'
+    
+    
+###
+def calc_change_in_course_prior_to_landing(movieinfo, nframes=50):
 
+    ## kalman
+    data = movieinfo.trajec.speed.reshape([len(movieinfo.trajec.speed),1])
+    ss = 2 # state size
+    os = 1 # observation size
+    F = np.array([   [1,1], # process update
+                     [0,1]],
+                    dtype=np.float)
+    H = np.array([   [0,1]], # observation matrix
+                    dtype=np.float)
+    Q = 1*np.eye(ss) # process noise
+    R = 25*np.eye(os) # observation noise
+    init_vel = data[0]
+    initx = np.array([0, init_vel], dtype=np.float)
+    initv = 0*np.eye(ss)
+    xsmooth,Vsmooth = sa1.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
+    ## 
+    
+    #plt.plot(xsmooth[:,1])
+    
+    movieinfo.trajec.smooth_accel = sa1.diffa(xsmooth[:,1])
+    
+    #plt.plot(movieinfo.trajec.smooth_accel*20.)
+    #plt.plot(movieinfo.trajec.dist_to_stim_r)
+    
+    
+    movieinfo.trajec.world_velocity_angle = sa1.remove_angular_rollover(np.arctan2(movieinfo.trajec.velocities[:,1], movieinfo.trajec.velocities[:,0]), 3)
+    ## kalman
+    data = movieinfo.trajec.world_velocity_angle.reshape([len(movieinfo.trajec.world_velocity_angle),1])
+    ss = 2 # state size
+    os = 1 # observation size
+    F = np.array([   [1,1], # process update
+                     [0,1]],
+                    dtype=np.float)
+    H = np.array([   [1,0]], # observation matrix
+                    dtype=np.float)
+    Q = 1*np.eye(ss) # process noise
+    R = 5*np.eye(os) # observation noise
+    init_vel = data[0]
+    initx = np.array([0, init_vel], dtype=np.float)
+    initv = 0*np.eye(ss)
+    xsmooth,Vsmooth = sa1.kalman_smoother(data, F, H, Q, R, initx, initv, plot=False)
+    ## 
+    movieinfo.trajec.world_velocity_angle_smooth = xsmooth[:,0]
+    movieinfo.trajec.world_velocity_angle_diff_smooth = xsmooth[:,1]
+        
+    frames = np.arange(movieinfo.trajec.frame_of_landing-nframes,movieinfo.trajec.frame_of_landing).tolist()
+    mean_angle = np.mean(movieinfo.trajec.world_velocity_angle_smooth[frames])
+    diff_from_mean = movieinfo.trajec.world_velocity_angle_smooth[frames]-mean_angle
+    sum_diff_from_mean = np.sum( np.abs(diff_from_mean) )
 
+    movieinfo.trajec.change_in_course = sum_diff_from_mean   
+        
+        
+        
+        
+        
+        
+        
+###
+def normalize_dist_to_stim_r(trajec):
+    trajec.dist_to_stim_r_normed = trajec.dist_to_stim_r - trajec.dist_to_stim_r[trajec.frame_of_landing]
+def get_frame_at_distance(movieinfo, distance):
+    normalize_dist_to_stim_r(movieinfo.trajec)
+    frames = np.arange(0, movieinfo.trajec.frame_of_landing).tolist()
+    dist_to_post = movieinfo.trajec.dist_to_stim_r_normed[frames]
+    dist_crossovers = np.where( sa1.diffa(np.sign(dist_to_post - distance)) != 0 )[0]
+    frame = dist_crossovers[-1]
+    return frame
+def get_speed_at_distance(movieinfo, distance):
+    frame = get_frame_at_distance(movieinfo, distance)
+    speed = movieinfo.trajec.speed[frame]
+    return speed
+def classify(movieinfo, dfar=0.06, dnear=0.005):
 
+    speed_hi_threshold = 0.18
+    speed_lo_threshold = 0.15
 
-
-
+    if movieinfo.trajec.behavior == 'landing' and movieinfo.trajec.dist_to_stim_r[0] >= 0.06:
+        movieinfo.trajec.speed_far = get_speed_at_distance(movieinfo, dfar)
+        movieinfo.trajec.speed_near = get_speed_at_distance(movieinfo, dnear)
+        
+        if movieinfo.trajec.speed_near > speed_hi_threshold:
+            movieinfo.trajec.classification = 'fast'
+        elif movieinfo.trajec.speed_far < speed_lo_threshold:
+            movieinfo.trajec.classification = 'slow'
+        else:
+            movieinfo.trajec.classification = 'mid'
+###
+def plot_classification(movie_dataset):
+    landing_keys = movie_dataset.get_movie_keys(behavior='landing')
+    for key in landing_keys:
+        movieinfo = movie_dataset.movies[key]
+        if movieinfo.trajec.behavior == 'landing' and movieinfo.trajec.dist_to_stim_r[0] >= 0.06:
+            classify(movieinfo)
+            
+            if movieinfo.trajec.classification == 'fast':
+                color = 'red'
+            elif movieinfo.trajec.classification == 'slow':
+                color = 'blue'
+            elif movieinfo.trajec.classification == 'mid':
+                color = 'black'
+            else:
+                color = 'green'
+                
+            plt.plot(movieinfo.trajec.speed_far, movieinfo.trajec.speed_near, 'o', color=color, )
+    plt.xlabel('speed far (0.06m)')
+    plt.ylabel('speed near (o.01m)')
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        
+        

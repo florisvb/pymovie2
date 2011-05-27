@@ -11,12 +11,18 @@ import matplotlib.pyplot as plt
 
 ###
 def normalize(array):
-    normed_array = np.zeros([len(array), 1])
+    normed_array = norm_array(array)
+    return array / normed_array
+def norm_array(array):
+    normed_array = np.zeros_like(array)
     for i in range(len(array)):
-        normed_array[i] = np.linalg.norm(array[i])
-    return normed_array
+        normed_array[i,:] = np.linalg.norm(array[i])
+    return normed_array[:,0]
     
-
+def diffa(array):
+    d = np.diff(array)
+    d = np.hstack( (d[0], d) )
+    return d
 ###
 def count_movies(movie_dataset):
     
@@ -307,6 +313,8 @@ def reprocess_function(movie_dataset, function):
     for key in keys:
         movieinfo = movie_dataset.movies[key]
         function(movieinfo)
+def calc_function(movie_dataset, function):
+    reprocess_function(movie_dataset, function)
     
 ###
 def smooth_movieinfo(movieinfo):
@@ -472,6 +480,29 @@ def calc_fly_coordinates_with_scale(movieinfo):
     movieinfo.scaled.angle_to_upper_edge = (movieinfo.scaled.signed_angletopost + movieinfo.scaled.angle_subtended_by_post/2.).reshape([len(movieinfo.scaled.signed_angletopost)])
     
     
+def calc_flydra_post_angles(movieinfo):
+    
+    heading = normalize(movieinfo.trajec.velocities[:,0:2])
+    movieinfo.trajec.angle_to_lower_edge = np.zeros(len(heading))
+    movieinfo.trajec.angle_to_upper_edge = np.zeros_like(movieinfo.trajec.angle_to_lower_edge)
+    movieinfo.trajec.signed_angle_to_post = np.zeros_like(movieinfo.trajec.angle_to_lower_edge)
+    movieinfo.trajec.angle_subtended_by_post = np.zeros_like(movieinfo.trajec.angle_to_lower_edge)
+    
+    for i in range(len(movieinfo.trajec.positions)):
+        
+        signed_angle_to_post, angle_subtended_by_post = get_angles_to_edges(movieinfo.trajec.positions[i,0:2], heading[i], np.array([0,0]), movieinfo.trajec.stimulus.radius)
+    
+        movieinfo.trajec.signed_angle_to_post[i] = signed_angle_to_post
+        movieinfo.trajec.angle_subtended_by_post[i] = angle_subtended_by_post
+        movieinfo.trajec.angle_to_lower_edge[i] = signed_angle_to_post - angle_subtended_by_post/2.
+        movieinfo.trajec.angle_to_upper_edge[i] = signed_angle_to_post + angle_subtended_by_post/2.
+    
+    #movieinfo.trajec.angle_to_lower_edge = remove_angular_rollover(movieinfo.trajec.angle_to_lower_edge, .5)
+    #movieinfo.trajec.angle_to_upper_edge = remove_angular_rollover(movieinfo.trajec.angle_to_upper_edge, .5)
+
+def get_frame_from_timestamp_flydra(movieinfo, timestamp):
+    return np.argmin( np.abs(movieinfo.trajec.epoch_time - timestamp) )
+    
     
 ###
 def calc_scale(movieinfo, plot=False):
@@ -495,6 +526,17 @@ def calc_scale(movieinfo, plot=False):
     if plot:
         plt.plot(sa1_dist*scale)
         plt.plot(flydra_dist, '*')
+        
+###
+def calc_time_to_impact(movieinfo, plot=False):
+    vec_to_post = -1*movieinfo.trajec.positions[:,0:2]
+    movieinfo.trajec.speed_in_direction_of_post = np.array([ np.dot( vec_to_post[i], movieinfo.trajec.velocities[:,0:2][i] ) for i in range(len(movieinfo.trajec.speed)) ])
+    movieinfo.trajec.speed_perpendicular_to_post = (norm_array(movieinfo.trajec.velocities[:,0:2])**2 - movieinfo.trajec.speed_in_direction_of_post**2)**(0.5)
+    
+    movieinfo.trajec.time_to_impact = movieinfo.trajec.dist_to_stim_r / movieinfo.trajec.speed
+    for i, t in enumerate(movieinfo.trajec.time_to_impact):
+        if np.abs(t) > 10:
+            movieinfo.trajec.time_to_impact[i] = 10*np.sign(t)
         
 ###############################################################################
 # Plotting Helper Functions
@@ -586,7 +628,40 @@ def get_angle_to_nearest_edge(obj_pos, obj_ori, post_pos, post_radius):
     if np.isnan(angle_subtended_by_post): angle_subtended_by_post = np.pi
     angle_to_edge = np.abs(signed_angletopost)-np.abs(angle_subtended_by_post)/2.
     
-    return worldangle, angle_to_edge    
+    return worldangle, signed_angletopost, angle_subtended_by_post 
+    
+###
+def get_angles_to_edges(obj_pos, obj_ori, post_pos, post_radius):
+    
+    vec_to_post = post_pos - obj_pos
+    dist_pos_to_post = np.linalg.norm(vec_to_post)
+    obj_ori /= np.linalg.norm(obj_ori)    
+    
+    worldangle = np.arctan2(obj_ori[1], obj_ori[0]) # want angle between 0 and 360 deg
+    if worldangle < 0:
+        worldangle = np.pi*2+worldangle
+    # remove angular rollover?    
+    
+    obj_ori_3vec = np.hstack( ( obj_ori, 0) ) 
+    vec_to_post_3vec = np.hstack( (vec_to_post, 0 ) ) 
+    
+    signed_angle_to_post = np.sum(np.cross( vec_to_post_3vec, obj_ori_3vec ) )
+    sin_signed_angle_to_post = signed_angle_to_post / (dist_pos_to_post)
+    sign_of_angle_to_post = np.sign(np.arcsin(sin_signed_angle_to_post))
+    
+    cosangletopost = np.dot(vec_to_post, obj_ori) / dist_pos_to_post 
+    angletopost = np.arccos(cosangletopost)
+     
+    signed_angletopost = -1*angletopost*sign_of_angle_to_post
+    
+    angle_subtended_by_post = 2*np.arcsin( post_radius / (dist_pos_to_post) )
+    # need to remove NAN's.. 
+    if np.isnan(angle_subtended_by_post): angle_subtended_by_post = np.pi
+    angle_to_edge = np.abs(signed_angletopost)-np.abs(angle_subtended_by_post)/2.
+    
+    return signed_angletopost, angle_subtended_by_post
+    
+    
     
 ###############################################################################
 # General ANALYSIS functions
@@ -604,11 +679,11 @@ def get_indices_during_fixation(movieinfo, fixation_threshold_degrees=5, fixatio
     
         lower_fixation_angle_bool_tmp = np.abs(fixation_lower) < fixation_threshold_radians
         fixation_lower_diff = np.diff( np.hstack( (fixation_lower[0], fixation_lower) ) )
-        lower_fixation_diff_bool_tmp = fixation_lower_diff < 0.0005
-        lower_fixation_bool_tmp = lower_fixation_diff_bool_tmp #lower_fixation_angle_bool_tmp*
+        lower_fixation_diff_bool_tmp = np.abs(fixation_lower_diff) < 0.01745
+        lower_fixation_bool_tmp = lower_fixation_angle_bool_tmp#lower_fixation_diff_bool_tmp #
         lower_fixation_indices_tmp = np.where( lower_fixation_bool_tmp == True )[0].tolist()
         #lower_fixation_indices_tmp = np.where( np.abs(fixation_lower) < fixation_threshold_radians )[0].tolist()
-        continuous_sequences = nim.find_blobs( lower_fixation_indices_tmp, sizerange=[fixation_duration_threshold_frames,np.inf], dilate=3)
+        continuous_sequences = nim.find_blobs( lower_fixation_indices_tmp, sizerange=[fixation_duration_threshold_frames,np.inf], dilate=1)
         lower_fixation_indices = []
         for sequence in continuous_sequences:
             indices = np.where(sequence == 1)[0].tolist()
@@ -617,14 +692,16 @@ def get_indices_during_fixation(movieinfo, fixation_threshold_degrees=5, fixatio
         
     upper_fixation_indices = get_continuous_data(fixation_upper)
     lower_fixation_indices = get_continuous_data(fixation_lower)
+    
+    print movieinfo.id, len(lower_fixation_indices), len(lower_fixation_indices)
         
     return  upper_fixation_indices, lower_fixation_indices
    
 ###
 def get_slipangle_during_fixation(movieinfo, fixation_threshold_degrees=5, fixation_duration_threshold=0.1):
     upper_fixation_indices, lower_fixation_indices = get_indices_during_fixation(movieinfo, fixation_threshold_degrees, fixation_duration_threshold)
-    slipangle_during_upper_fixation = movieinfo.scaled.slipangle[upper_fixation_indices]
-    slipangle_during_lower_fixation = movieinfo.scaled.slipangle[lower_fixation_indices]
+    slipangle_during_upper_fixation = movieinfo.flycoord.slipangle[upper_fixation_indices]
+    slipangle_during_lower_fixation = movieinfo.flycoord.slipangle[lower_fixation_indices]
     slipangle_during_fixation = np.hstack( (slipangle_during_upper_fixation, slipangle_during_lower_fixation) )
     
     return slipangle_during_fixation
@@ -661,13 +738,16 @@ def get_speed_during_fixation(movieinfo, fixation_threshold_degrees=5, fixation_
 ###
 def get_trajectory_list_from_short_tuples(tuples):
     
-    year_month_base = '201011'
+    year_month_base = ''#'201011'
     movie_name_base = '_C001H001S00'
     
     keys = []
     
     for tup in tuples:
-        key = year_month_base + str(tup[0]) + movie_name_base + str(tup[1])
+        tup1 = str(tup[1])
+        if len(tup1) < 2:
+            tup1 = '0' + tup1
+        key = year_month_base + str(tup[0]) + movie_name_base + tup1
         keys.append(key)
         
     return keys
@@ -682,15 +762,44 @@ def get_fixation_keys():
 ###############################################################################
     
 ###
-def calc_fixation_for_flydra_trajectory(trajec):
+def calc_deviation_from_initial_state(movieinfo, threshold=0):
+    
+    initial_state = np.array([movieinfo.scaled.velocities[0][0], movieinfo.scaled.velocities[0][1], movieinfo.flycoord.worldangle[0][0]])
+    movieinfo.deviation_from_initial_state = np.zeros(len(movieinfo.frames))
+    for f in range(len(movieinfo.frames)):
+        
+        current_state = np.array([movieinfo.scaled.velocities[f][0], movieinfo.scaled.velocities[f][1], movieinfo.flycoord.worldangle[f][0]])
+        err = np.abs(current_state - initial_state)
+        weights = np.array([1/0.3,1/0.3,0.05/(np.pi)])
+        sum_err = np.dot(err, weights)
+        movieinfo.deviation_from_initial_state[f] = sum_err
+
+###
+def calc_integral_of_expansion(movieinfo):
+    
+    align_frame = np.where(movieinfo.trajec.dist_to_stim_r < 0.03)[0][0]
+    
+    movieinfo.trajec.integrated_expansion = np.zeros_like(movieinfo.trajec.dist_to_stim_r)
+    
+    for i in range(align_frame, len(movieinfo.trajec.integrated_expansion)):
+        movieinfo.trajec.integrated_expansion[i] = movieinfo.trajec.integrated_expansion[i-1] + (movieinfo.trajec.angle_subtended_by_post[i]-movieinfo.trajec.angle_subtended_by_post[i-1])
+    
+    
+    
+    
+###
+def calc_post_dynamics_for_flydra_trajectory(trajec):
     
     pos = trajec.positions[:,0:2]
     ori = trajec.velocities[:,0:2]    
-    trajec.angletoedge = np.zeros_like(trajec.speed)
+    trajec.angle_to_post = np.zeros_like(trajec.speed)
+    trajec.angle_subtended_by_post = np.zeros_like(trajec.speed)
     for i in range(len(ori)):
         ori[i,:] /= np.linalg.norm(ori[i,:])
-        worldangle, angle_to_edge = get_angle_to_nearest_edge(pos[i], ori[i], np.array([0,0]), trajec.stimulus.radius)
-        trajec.angletoedge[i] = angle_to_edge
+        worldangle, signed_angletopost, angle_subtended_by_post = get_angle_to_nearest_edge(pos[i], ori[i], np.array([0,0]), trajec.stimulus.radius)
+        trajec.angle_to_post[i] = signed_angletopost
+        trajec.angle_subtended_by_post[i] = angle_subtended_by_post
+        
 def calc_fixation_for_flydra_dataset(dataset):
     for k, trajec in dataset.trajecs.items():
         calc_fixation_for_flydra_trajectory(trajec)
@@ -841,15 +950,85 @@ def get_keys(movie_dataset, behavior, subbehavior, crash=False):
             iscrash = True
         else:
             iscrash = False
-            
-        if subbehavior in movieinfo.subbehavior and movieinfo.behavior in behavior and iscrash == crash:
+        print movieinfo.subbehavior, subbehavior, '::', movieinfo.behavior, behavior, '::', iscrash, crash
+        
+        try:
+            error = movieinfo.movieerror
+        except:
+            error = False
+        
+        if subbehavior in movieinfo.subbehavior and movieinfo.behavior in behavior and iscrash == crash and not error:
             keys.append(key)
         
     return keys
 
     
+def save_frames(movieinfo, interval=10, crop=None):
+    if crop is None:
+        crop = [0, movieinfo.background.shape[0], 0, movieinfo.background.shape[1]]
+
+    f = 0
+    while f < len(movieinfo.frames):
+        print f
+        img = copy.copy(movieinfo.background)
+        img[movieinfo.frames[f].zero[0]:movieinfo.frames[f].zero[0]+movieinfo.frames[f].uimg.shape[0], 
+            movieinfo.frames[f].zero[1]:movieinfo.frames[f].zero[1]+movieinfo.frames[f].uimg.shape[1]] = movieinfo.frames[f].uimg
         
+        fstr = str(f)
+        while len(fstr) < 4:
+            fstr = '0' + fstr
+        
+        name = 'sa1_movie_frame_' + fstr
+        plt.imsave(name, img[crop[2]:crop[3], crop[0]:crop[1]], cmap=plt.get_cmap('gray'))
+        del(img)
+        
+        f += interval
+
+
+def copy_behavior_from_movieinfo_to_trajec(movie_dataset):
+    allkeys = movie_dataset.get_movie_keys(behavior='all')
+    keys = []
+    for key in allkeys:
+        movieinfo = movie_dataset.movies[key]
+        movieinfo.trajec.behavior = movieinfo.behavior
+
+        
+def calc_frame_of_landing (trajec, threshold = 0.0005):
     
+        # search forward in time until we get below threshold, then check to make sure fly stays below threshold for three more frames
+        # if it's a flyby, find nearest point to post?
+        if trajec.behavior == 'flyby':
+            trajec.frame_of_landing = np.argmin(trajec.dist_to_stim)
+            return trajec.frame_of_landing
+
+        
+        if trajec.behavior == 'landing':
+            diffdist = np.abs(diffa(trajec.dist_to_stim_r))
+            print 'calculating for landing'
+            frame_of_landing = 0
+            counter = 0
+            for i in range(trajec.length):
+                if frame_of_landing == 0:
+                    if diffdist[i] < threshold and trajec.dist_to_stim_r[i] < 0.005:
+                        frame_of_landing = i
+                if frame_of_landing > 0:
+                    if counter >= 3:
+                        trajec.frame_of_landing = frame_of_landing
+                        trajec.time_of_landing = trajec.fly_time[frame_of_landing]
+                        print 'frame of landing: ', frame_of_landing
+                        return frame_of_landing
+                    elif diffdist[i] < threshold:
+                        counter = counter + 1
+                    else:
+                        counter = 0
+                        frame_of_landing = 0
+                        
+            trajec.frame_of_landing = -1
+            print 'frame of landing: ', frame_of_landing
+            return -1
+
+
+
     
     
     
