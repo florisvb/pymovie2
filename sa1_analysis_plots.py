@@ -2,7 +2,7 @@ import numpy as np
 import copy
 
 import sys
-sys.path.insert(0, '/usr/local/lib/python2.6/dist-packages')
+#sys.path.insert(0, '/usr/local/lib/python2.6/dist-packages')
 import matplotlib
 print 'using matplotlib version: ', matplotlib.__version__
 
@@ -11,8 +11,8 @@ from matplotlib.patches import Arrow
 import matplotlib.patches as patches
 import matplotlib.backends.backend_pdf as pdf
 from matplotlib.colors import colorConverter
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from mpl_toolkits.axes_grid1 import ImageGrid
+#from mpl_toolkits.axes_grid1 import make_axes_locatable
+#from mpl_toolkits.axes_grid1 import ImageGrid
 
 sys.path.append('/home/floris/src/analysis')
 import analysis_plot as ap
@@ -510,6 +510,8 @@ def plot_trajectory(movieinfo, figure=None, show_post=True, show_flydra=True):
     
     title = movieinfo.id + ' ' + movieinfo.behavior + ' ' + movieinfo.subbehavior[0]
     ax0.set_title(title)
+    
+    
     
     return ax0
     

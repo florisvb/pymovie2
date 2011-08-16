@@ -148,6 +148,8 @@ def process_movie(movieinfo, framerange=None, nframes=None):
         
         center, uimg, zero = nim.find_object_with_background_subtraction(raw, background, mask=tracking_mask, guess=guess, guess_radius=guess_radius, sizerange=[10,600], thresh=10, uimg_roi_radius=30, return_uimg=True, return_mimg=False)
         
+        print '********pygmovie********', uimg.shape, zero
+        
         ubackground = nim.extract_uimg(background, uimg.shape, zero)
         
         relative_center_of_body, longaxis, shortaxis, body, ratio = nim.find_ellipse(uimg, background=ubackground, threshrange=[150,254], sizerange=[10,600], dist_thresh=10, erode=False, check_centers=True)
@@ -173,8 +175,11 @@ def process_movie(movieinfo, framerange=None, nframes=None):
     
 ###
 def reprocess_uframes(movieinfo):
+    print movieinfo.id
     
     framerange = movieinfo.framenumbers
+    print framerange[0], framerange[-1]
+    
     nframes = len(framerange)
     
     movieinfo.obj_centers = np.zeros([nframes, 2])
@@ -183,9 +188,11 @@ def reprocess_uframes(movieinfo):
     movieinfo.obj_ratio = np.zeros([nframes, 2])
     
     for f, framenumber in enumerate(framerange):
+        print f
         frame = movieinfo.frames[f] 
         uimg = frame.uimg
         zero = frame.zero
+        
         
         ubackground = nim.extract_uimg(movieinfo.background, uimg.shape, zero)
             

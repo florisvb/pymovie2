@@ -104,6 +104,7 @@ def get_ellipse_cov(img, erode=False, recenter=True):
             pts = (np.transpose(np.nonzero(img))).T
             cov = np.cov(pts)
             cov = np.nan_to_num(cov)
+            
             e,v = np.linalg.eig(cov)
             
             longaxis = v[:,np.argmax(e)]
@@ -286,12 +287,19 @@ def find_blobs(img, sizerange=[0,inf], aslist=True, dilate=False, erode=False):
         return blob_list
         
 def find_blob_nearest_to_point(img, pt):
-    centers = center_of_blob(img)
+    if type(img) == list:
+        blobs = []
+        for im in img:
+            blobs.append( find_blobs(im, sizerange=[0,inf], aslist=False, dilate=False, erode=False) )
+    else:
+        img = np.array(img)
+        blobs = find_blobs(img, sizerange=[0,inf], aslist=True, dilate=False, erode=False)
+    centers = center_of_blob(blobs)
     errs = np.zeros(len(centers))
     for i, center in enumerate(centers):
         errs[i] = np.linalg.norm(center - pt)    
     nearest_index = np.argmin(errs)
-    return img[nearest_index]
+    return blobs[nearest_index]
     
 def find_biggest_blob(img):
     blobs, nblobs = ndimage.label(img)
@@ -316,11 +324,11 @@ def center_of_blob(img):
     if type(img) is list:
         centers = []
         for blob in img:
-            center = np.array([center_of_mass(blob)[i] for i in range(2)])
+            center = np.array([center_of_mass(blob)[i] for i in range(1,len(blob.shape))])
             centers.append(center)
         return centers
     else:
-        center = np.array([center_of_mass(img)[i] for i in range(2)])
+        center = np.array([center_of_mass(img)[i] for i in range(0, len(img.shape))])
         return center
         
 ###############################################################################
@@ -379,6 +387,7 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
         
     thresh_adj = 0
     blob = []
+    print 'blob: '
     while np.sum(blob) <= 0: # use while loop to force finding an object
         diffthresh = threshold(diff, thresh+thresh_adj, threshold_hi=255)*255
         
@@ -387,10 +396,13 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
             blobs = find_blobs(diffthresh, sizerange=sizerange, aslist=True)
             if len(blobs) > 1:
                 blob = find_blob_nearest_to_point(blobs, guess)
+                print '*0'
             else:
                 blob = blobs[0]
+                print '*1'
         else:
             blob = find_biggest_blob(diffthresh)
+            print '*2'
             
         thresh_adj -= 1
         if thresh_adj+thresh <= 0: # failed to find anything at all!!
@@ -412,8 +424,9 @@ def find_object_with_background_subtraction(img, background, mask=None, guess=No
                 center = copy.copy(center)
                 return center    
     
-    
+    print '******', blob.shape
     relative_center = center_of_blob(blob)
+    print relative_center, zero
     center = relative_center + zero
     
     # find a uimg
@@ -437,6 +450,7 @@ def find_object(img, background=None, threshrange=[1,254], sizerange=[10,400], d
         diff = absdiff(img, background)
     else:
         diff = img
+    print '**shape diff** ', diff.shape
     imgadj = auto_adjust_levels(diff)
     body = threshold(imgadj, threshrange[0], threshrange[1])*255
     
@@ -474,13 +488,17 @@ def find_object(img, background=None, threshrange=[1,254], sizerange=[10,400], d
 
 def find_ellipse(img, background=None, threshrange=[1,254], sizerange=[10,400], dist_thresh=10, erode=False, check_centers=False):
     
+    print '**img shape** ', img.shape
     body = find_object(img, background=background, threshrange=threshrange, sizerange=sizerange, dist_thresh=dist_thresh, erode=erode, check_centers=check_centers)
 
     if body.sum() < 1 and check_centers==True:
-        body = find_object(img, background=background, threshrange=threshrange, sizerange=sizerange, dist_thresh=dist_thresh, erode=erode, check_centers=False)
+        body = find_object(img, background=background, threshrange=threshrange, sizerange=sizerange, dist_thresh=dist_thresh, erode=erode, check_centers=check_centers)
         
     body = binary_fill_holes(body)
-
+    
+    if body.sum() < 1:
+        body[body.shape[0] / 2, body.shape[1] / 2] = 1
+    
     center, longaxis, shortaxis, ratio = get_ellipse_cov(body, erode=False, recenter=True)
     
     return center, longaxis, shortaxis, body, ratio

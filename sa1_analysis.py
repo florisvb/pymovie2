@@ -607,8 +607,8 @@ def get_angle_to_nearest_edge(obj_pos, obj_ori, post_pos, post_radius):
     obj_ori /= np.linalg.norm(obj_ori)    
     
     worldangle = np.arctan2(obj_ori[1], obj_ori[0]) # want angle between 0 and 360 deg
-    if worldangle < 0:
-        worldangle = np.pi*2+worldangle
+    #if worldangle < 0:
+    #    worldangle = np.pi*2+worldangle
     # remove angular rollover?    
     
     obj_ori_3vec = np.hstack( ( obj_ori, 0) ) 
@@ -794,11 +794,17 @@ def calc_post_dynamics_for_flydra_trajectory(trajec):
     ori = trajec.velocities[:,0:2]    
     trajec.angle_to_post = np.zeros_like(trajec.speed)
     trajec.angle_subtended_by_post = np.zeros_like(trajec.speed)
+    trajec.angle_to_post_edge = np.zeros_like(trajec.speed)
+    trajec.worldangle = np.zeros_like(trajec.speed)
     for i in range(len(ori)):
         ori[i,:] /= np.linalg.norm(ori[i,:])
-        worldangle, signed_angletopost, angle_subtended_by_post = get_angle_to_nearest_edge(pos[i], ori[i], np.array([0,0]), trajec.stimulus.radius)
+        worldangle, signed_angletopost, angle_subtended_by_post = get_angle_to_nearest_edge(pos[i], ori[i], np.array([0,0]), trajec.radius_at_nearest)
         trajec.angle_to_post[i] = signed_angletopost
         trajec.angle_subtended_by_post[i] = angle_subtended_by_post
+        trajec.worldangle[i] = worldangle
+        angle_to_post_edge = np.min( [signed_angletopost+angle_subtended_by_post/2., signed_angletopost-angle_subtended_by_post/2.] )
+        trajec.angle_to_post_edge[i] = angle_to_post_edge
+        
         
 def calc_fixation_for_flydra_dataset(dataset):
     for k, trajec in dataset.trajecs.items():

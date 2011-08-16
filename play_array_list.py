@@ -1,5 +1,6 @@
 import sys
 
+import matplotlib.pyplot as plt
 
 from pyglet.gl import *
 from pyglet import window
@@ -12,12 +13,23 @@ import numpyimgproc as nim
 import pickle
 from optparse import OptionParser
 
-def play_movieinfo(movieinfo, nframes=None, delay=0, magnify=1, show_background=True, adjust_blit_position=True):
+
+
+def play_movieinfo(movieinfo, nframes=None, delay=0, magnify=1, show_background=True, adjust_blit_position=True, framerange=None):
+
+    if show_background is False:
+        adjust_blit_position = False
+
     if nframes is None:
         frames = [movieinfo.frames[i].uimg for i in range(len(movieinfo.frames))]
     else:
         nframes = np.min([nframes, len(movieinfo.frames)])
         frames = [movieinfo.frames[i].uimg for i in range(nframes)]
+        
+    if framerange is not None:
+        if framerange[-1] == -1:
+            framerange[-1] = len(movieinfo.frames)
+        frames = [movieinfo.frames[i].uimg for i in range(framerange[0], framerange[-1])]
     
     if show_background:
         background = movieinfo.background
@@ -31,10 +43,9 @@ def play_movieinfo(movieinfo, nframes=None, delay=0, magnify=1, show_background=
         
     play(frames, delay=delay, magnify=magnify, background=background, blit_position=blit_position)
 
-def play(frames, delay=0, magnify=1, background=None, blit_position=None):
+def play(frames, delay=0, magnify=1, background=None, blit_position=None, show_frame_number=True):
 
     w = window.Window(visible=False, resizable=True)
-    
     
     arr = numpy.zeros([100,100], dtype=numpy.uint8)
     aii = ArrayInterfaceImage(arr)
@@ -61,7 +72,7 @@ def play(frames, delay=0, magnify=1, background=None, blit_position=None):
         w.height = background.height
         w.set_visible()
     
-    
+    LIBGL_ALWAYS_SOFTWARE = 1
     glEnable(GL_BLEND)
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
     
@@ -87,18 +98,32 @@ def play(frames, delay=0, magnify=1, background=None, blit_position=None):
                 
             img = aii.texture
             w.dispatch_events()
+            w.clear()
+            
             
             if background_tiled:
                 background.blit_tiled(0, 0, 0, 100, 100) #w.width, w.height)
             else:
                 background.blit(0,0,0)
                 
+            # add some overlays:
+            if show_frame_number:
+                s = 'frame: ' + str(i)
+                label = pyglet.text.Label(s,
+                        font_name='courier',
+                        font_size=36,
+                        x=10, y=10)
+                label.draw()
+
+                
             if blit_position is None:
                 img.blit(0, 0, 0)
             else:
                 img.blit(blit_position[i][1], blit_position[i][0], 0)
                 
-            # add some overlays:
+            
+			    
+			    #frame_number_text.draw()
             if 0:
                 r = arr.shape[0]/2.
                 body_axis = npmovie.kalmanobj.long_axis[f]

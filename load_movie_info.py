@@ -309,7 +309,7 @@ def calc_syncronized_timerange(movie_dataset):
             
 def load(movie_dataset = None):
 
-    movie_list = '/home/floris/data/sa1_movie_data/sa1_movie_processing_info/sa1_movie_list_info_2'
+    movie_list = '/home/floris/data/sa1_movie_data/sa1_movie_processing_info/sa1_movie_list_info_4'
     movie_dataset = load_movie_info_from_movie_list(movie_list, movie_dataset=movie_dataset)
     load_movie_info_from_movie_files(movie_dataset)
     
