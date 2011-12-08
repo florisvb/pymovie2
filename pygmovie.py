@@ -205,6 +205,7 @@ def reprocess_uframes(movieinfo):
         movieinfo.obj_longaxis[f,:] = longaxis
         movieinfo.obj_shortaxis[f,:] = shortaxis
         movieinfo.obj_ratio[f,:] = ratio
+        print ratio
         
 ###
 def reprocess_movie_dataset(movie_dataset):
